@@ -10,3 +10,8 @@ cabal-dev
 *.sav
 tags
 .virthualenv
+*.hs~
+*.swp
+*.swo
+*.sav
+tags
