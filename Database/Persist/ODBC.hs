@@ -113,6 +113,9 @@ openSimpleConn conn = do
 
 prepare' :: O.Connection -> Text -> IO Statement
 prepare' conn sql = do
+#if DEBUG
+    liftIO $ "Database.Persist.ODBC.prepare': sql = " ++ T.unpack sql
+#endif
     stmt <- O.prepare conn $ T.unpack sql
     
     return Statement

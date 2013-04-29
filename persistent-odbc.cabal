@@ -13,6 +13,9 @@ build-type:         Simple
 -- Flag with-test
 --    Description:    Build with executable test
 --    Default:        False
+Flag debug
+    Description:    Build with some debug-information printed in console
+    Default:        False
 
 library
     exposed-modules:    Database.Persist.ODBC
@@ -21,11 +24,13 @@ library
 
     extensions: OverloadedStrings, FlexibleInstances
 
+    if flag(debug)
+        cc-options: -DDEBUG
+
     build-depends: base         >= 4        && < 5
                 , text          >= 0.11
                 , aeson         >= 0.6
                 , time          >= 1.4
---                , bytestring    >= 0.9
                 , conduit       >= 1.0
                 , containers    >= 0.4
                 , transformers  >= 0.3
