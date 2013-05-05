@@ -8,20 +8,21 @@ module Database.Persist.ODBC
     ( withODBCPool
     , withODBCConn
     , createODBCPool
-    , module Database.Persist
-    , module Database.Persist.GenericSql
+    , module Database.Persist.Sql
     , ConnectionString
     , OdbcConf (..)
     , openSimpleConn
     ) where
 
-import Prelude hiding (catch)
-import Control.Exception(catch, SomeException)
-import Database.Persist hiding (Entity (..))
+import qualified Control.Exception as E -- (catch, SomeException)
+import Database.Persist.Sql
+{-
+ - hiding (Entity (..))
 import Database.Persist.Store
 import Database.Persist.GenericSql hiding (Key)
 import Database.Persist.GenericSql.Internal
 import Database.Persist.EntityDef
+-}
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
 import qualified Database.HDBC.ODBC as O
@@ -96,19 +97,20 @@ openSimpleConn :: O.Connection -> IO Connection
 openSimpleConn conn = do
     smap <- newIORef $ Map.empty
     return Connection
-        { prepare    = prepare' conn
-        , stmtMap    = smap
-        , insertSql  = insertSql'
-        , close      = O.disconnect conn
-        , migrateSql = migrate'
-        , begin      = const 
-                     $ catch (O.commit conn) (\(_ :: SomeException) -> return ())  
+        { connPrepare       = prepare' conn
+        , connStmtMap       = smap
+        , connInsertSql     = insertSql'
+        , connClose         = O.disconnect conn
+        , connMigrateSql    = migrate'
+        , connBegin         = const 
+                     $ E.catch (O.commit conn) (\(_ :: E.SomeException) -> return ())  
             -- there is no nested transactions.
             -- Transaction begining means that previous commited
-        , commitC    = const $ O.commit   conn
-        , rollbackC  = const $ O.rollback conn
-        , escapeName = escape
-        , noLimit    = "" -- "LIMIT ALL"
+        , connCommit        = const $ O.commit   conn
+        , connRollback      = const $ O.rollback conn
+        , connEscapeName    = escape
+        , connNoLimit       = "" -- "LIMIT ALL"
+        , connRDBMS         = "odbc" -- ?
         }
 
 prepare' :: O.Connection -> Text -> IO Statement
@@ -119,10 +121,10 @@ prepare' conn sql = do
     stmt <- O.prepare conn $ T.unpack sql
     
     return Statement
-        { finalize  = O.finish stmt
-        , reset     = return () -- rollback conn ?
-        , execute   = execute' stmt
-        , withStmt  = withStmt' stmt
+        { stmtFinalize  = O.finish stmt
+        , stmtReset     = return () -- rollback conn ?
+        , stmtExecute   = execute' stmt
+        , stmtQuery     = withStmt' stmt
         }
 
 insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
@@ -174,7 +176,7 @@ data OdbcConf = OdbcConf
     }
 
 instance PersistConfig OdbcConf where
-    type PersistConfigBackend OdbcConf = SqlPersist
+    type PersistConfigBackend OdbcConf = SqlPersistT
     type PersistConfigPool OdbcConf = ConnectionPool
     createPoolConfig (OdbcConf cs size) = createODBCPool cs size
     runPool _ = runSqlPool
@@ -194,6 +196,7 @@ instance DC.Convertible P HSV.SqlValue where
     safeConvert (P (PersistText t))             = Right $ HSV.toSql t
     safeConvert (P (PersistByteString bs))      = Right $ HSV.toSql bs
     safeConvert (P (PersistInt64 i))            = Right $ HSV.toSql i
+    safeConvert (P (PersistRational r))         = Right $ HSV.toSql r
     safeConvert (P (PersistDouble d))           = Right $ HSV.toSql d
     safeConvert (P (PersistBool b))             = Right $ HSV.toSql b
     safeConvert (P (PersistDay d))              = Right $ HSV.toSql d
@@ -229,7 +232,7 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlChar c)          = Right $ P $ PersistText $ T.singleton c
     safeConvert (HSV.SqlBool b)          = Right $ P $ PersistBool b
     safeConvert (HSV.SqlDouble d)        = Right $ P $ PersistDouble d
-    safeConvert (HSV.SqlRational r)      = Right $ P $ PersistDouble $ fromRational r
+    safeConvert (HSV.SqlRational r)      = Right $ P $ PersistRational r
     safeConvert (HSV.SqlLocalDate d)     = Right $ P $ PersistDay d
     safeConvert (HSV.SqlLocalTimeOfDay t)= Right $ P $ PersistTimeOfDay t
     safeConvert (HSV.SqlZonedLocalTimeOfDay td tz)
@@ -243,10 +246,9 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
 
-migrate' :: PersistEntity val
-         => [EntityDef]
+migrate' :: [EntityDef a]
          -> (Text -> IO Statement)
-         -> val
+         => EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' _ _ _ = error "migrate is not implemented for ODBC"
 

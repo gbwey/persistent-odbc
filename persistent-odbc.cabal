@@ -1,5 +1,5 @@
 name:               persistent-odbc
-version:            0.0.0.1
+version:            0.1.0.0
 synopsis:           Backend for the persistent library using ODBC
 description:        Based on HDBC-ODBC. Functionality for modifying db-schema is not supported. Such functionality should be supported in additional packages specified for database like persistent-odbc-oracle, persistent-odbc-msql and so on.
 license:            MIT
@@ -9,23 +9,14 @@ maintainer:         OlshanskyDR@gmail.com
 category:           Database, Yesod
 cabal-version:      >= 1.8
 build-type:         Simple
-
--- Flag with-test
---    Description:    Build with executable test
---    Default:        False
-Flag debug
-    Description:    Build with some debug-information printed in console
-    Default:        False
+stability:          Experimental
 
 library
     exposed-modules:    Database.Persist.ODBC
 
     ghc-options:   -Wall -O2
 
-    extensions: OverloadedStrings, FlexibleInstances
-
-    if flag(debug)
-        cc-options: -DDEBUG
+--    extensions: OverloadedStrings, FlexibleInstances
 
     build-depends: base         >= 4        && < 5
                 , text          >= 0.11
@@ -36,19 +27,10 @@ library
                 , transformers  >= 0.3
                 , convertible   >= 1.0
                 , HDBC          >= 2.2
-                , HDBC-odbc     >= 2.2
-                , persistent    >= 1.1
+                , HDBC-odbc     >= 2.2      && < 2.3
+                , persistent    >= 1.2
 
--- executable         testXml
---     if flag(with-test)
---         Buildable: True
---     else
---         Buildable: False
--- 
---     main-is:           testXml.hs
---     hs-source-dirs:    test
---     build-depends:     base
---                      , xml-conduit-generic
--- 
---     ghc-options:       -O2
+source-repository head
+  type:     git
+  location: git://github.com/odr/persistent-odbc.git
 
