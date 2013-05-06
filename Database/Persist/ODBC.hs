@@ -116,7 +116,7 @@ openSimpleConn conn = do
 prepare' :: O.Connection -> Text -> IO Statement
 prepare' conn sql = do
 #if DEBUG
-    liftIO $ "Database.Persist.ODBC.prepare': sql = " ++ T.unpack sql
+    putStrLn $ "Database.Persist.ODBC.prepare': sql = " ++ T.unpack sql
 #endif
     stmt <- O.prepare conn $ T.unpack sql
     
@@ -147,6 +147,9 @@ withStmt' :: MonadResource m
           -> [PersistValue]
           -> Source m [PersistValue]
 withStmt' stmt vals = do
+#if DEBUG
+    liftIO $ putStrLn $ "withStmt': vals: " ++ show vals
+#endif
     bracketP openS closeS pull
   where
     openS       = execute' stmt vals >> return ()
@@ -154,12 +157,19 @@ withStmt' stmt vals = do
     pull x      = do
         mr <- liftIO $ O.fetchRow stmt
         maybe (return ()) 
-              (\r -> yield (map (unP . HSV.fromSql) r) >> pull x)
+              (\r -> do
+#if DEBUG
+                    liftIO $ putStrLn $ "withStmt': yield: " ++ show r
+                    liftIO $ putStrLn $ "withStmt': yield2: " ++ show (map (unP . HSV.fromSql) r)
+#endif
+                    yield (map (unP . HSV.fromSql) r)
+                    pull x
+              )
               mr
 
 escape :: DBName -> Text
 escape (DBName s) =
-    T.pack $ '"' : go (T.unpack s) ++ "\""
+    T.pack $ {- '"' : -} go (T.unpack s) {- ++ "\""-}
   where
     go "" = ""
     go ('"':xs) = "\"\"" ++ go xs
