@@ -7,6 +7,8 @@
 -- | An ODBC backend for persistent.
 module Database.Persist.MigratePostgres
     ( migratePostgres
+     ,insertSqlPostgres 
+     ,escape
     ) where
 
 import Database.Persist.Sql
@@ -403,3 +405,15 @@ refName (DBName table) (DBName column) =
 
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
+
+insertSqlPostgres :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSqlPostgres t cols id' = ISRSingle $ pack $ concat
+    [ "INSERT INTO "
+    , T.unpack $ escape t
+    , "("
+    , intercalate "," $ map (T.unpack . escape) cols
+    , ") VALUES("
+    , intercalate "," (map (const "?") cols)
+    , ") RETURNING "
+    , T.unpack $ escape id'
+    ]

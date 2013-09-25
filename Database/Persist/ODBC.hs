@@ -18,8 +18,8 @@ module Database.Persist.ODBC
 
 import qualified Control.Exception as E -- (catch, SomeException)
 import Database.Persist.Sql
-import Database.Persist.MigratePostgres
-import Database.Persist.MigrateMySQL
+import qualified Database.Persist.MigratePostgres as PG
+import qualified Database.Persist.MigrateMySQL as MYSQL
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -29,12 +29,11 @@ import qualified Database.HDBC.SqlValue as HSV
 import qualified Data.Convertible as DC
 
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.List (intercalate)
 import Data.IORef(newIORef)
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import Data.Time.LocalTime (localTimeToUTC, utc)
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Data.Int (Int64)
@@ -94,21 +93,21 @@ open' dbt cstr = do
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
 openSimpleConn :: Maybe DBType -> O.Connection -> IO Connection
-openSimpleConn dbt conn = do
+openSimpleConn dbtype conn = do
     smap <- newIORef $ Map.empty
     return Connection
         { connPrepare       = prepare' conn
         , connStmtMap       = smap
-        , connInsertSql     = insertSql'
+        , connInsertSql     = insertSql' dbtype
         , connClose         = O.disconnect conn
-        , connMigrateSql    = migrate' dbt
+        , connMigrateSql    = migrate' dbtype
         , connBegin         = const 
                      $ E.catch (O.commit conn) (\(_ :: E.SomeException) -> return ())  
             -- there is no nested transactions.
             -- Transaction begining means that previous commited
         , connCommit        = const $ O.commit   conn
         , connRollback      = const $ O.rollback conn
-        , connEscapeName    = escapeALT
+        , connEscapeName    = escape dbtype
         , connNoLimit       = "" -- "LIMIT ALL"
         , connRDBMS         = "odbc" -- ?
         }
@@ -126,18 +125,6 @@ prepare' conn sql = do
         , stmtExecute   = execute' stmt
         , stmtQuery     = withStmt' stmt
         }
-
-insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSql' t cols id' = ISRSingle $ pack $ concat
-    [ "INSERT INTO "
-    , T.unpack $ escapeALT t
-    , "("
-    , intercalate "," $ map (T.unpack . escapeALT) cols
-    , ") VALUES("
-    , intercalate "," (map (const "?") cols)
-    , ") RETURNING "
-    , T.unpack $ escapeALT id'
-    ]
 
 execute' :: O.Statement -> [PersistValue] -> IO Int64
 execute' query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
@@ -166,7 +153,7 @@ withStmt' stmt vals = do
                     pull x
               )
               mr
-
+{-
 escapeALT :: DBName -> Text
 escapeALT (DBName s) =
     T.pack $ {- '"' : -} go (T.unpack s) {- ++ "\""-}
@@ -174,7 +161,7 @@ escapeALT (DBName s) =
     go "" = ""
     go ('"':xs) = "\"\"" ++ go xs
     go (x:xs) = x : go xs
-
+-}
 -- | Information required to connect to a PostgreSQL database
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withODBCPool'.
@@ -263,7 +250,27 @@ migrate' :: Show a => Maybe DBType
          -> (Text -> IO Statement)
          => EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
-migrate' dbt allDefs getter val = case dbt of
-                                    Just Postgres -> migratePostgres allDefs getter val
-                                    Just MySQL -> migrateMySQL allDefs getter val
+migrate' dbt allDefs getter val = 
+  case dbt of
+    Just Postgres -> PG.migratePostgres allDefs getter val
+    Just MySQL -> MYSQL.migrateMySQL allDefs getter val
                                     _ -> error $ "no handler for " ++ show dbt
+
+-- need different escape strategies for each type
+-- need different ways to get the id back:returning works for postgres
+-- SELECT LAST_INSERT_ID(); for mysql
+
+insertSql' :: Maybe DBType -> DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' dbtype t cols id' = 
+  case dbtype of
+    Just Postgres -> PG.insertSqlPostgres t cols id'
+    Just MySQL -> MYSQL.insertSqlMySQL t cols id'
+    _ -> error $ "no handler for " ++ show dbtype
+
+escape :: Maybe DBType -> DBName -> Text
+escape dbtype dbname = 
+  case dbtype of
+    Just Postgres -> PG.escape dbname
+    Just MySQL -> T.pack $ MYSQL.escapeDBName dbname
+    _ -> error $ "no escape handler for " ++ show dbtype
+

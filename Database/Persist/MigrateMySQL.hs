@@ -4,42 +4,26 @@
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MigrateMySQL
     ( migrateMySQL
+     ,insertSqlMySQL
+     ,escapeDBName
     ) where
 
 import Control.Arrow
-import Control.Monad (mzero)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Error (ErrorT(..))
-import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Either (partitionEithers)
-import Data.Fixed (Pico)
 import Data.Function (on)
-import Data.IORef
 import Data.List (find, intercalate, sort, groupBy)
 import Data.Text (Text, pack)
-import System.Environment (getEnvironment)
 
 import Data.Conduit
--- import qualified Blaze.ByteString.Builder.Char8 as BBB
---import qualified Blaze.ByteString.Builder.ByteString as BBS
 import qualified Data.Conduit.List as CL
-import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
-import Data.Int (Int64)
-
---import qualified Database.MySQL.Simple        as MySQL
---import qualified Database.MySQL.Simple.Param  as MySQL
---import qualified Database.MySQL.Simple.Result as MySQL
---import qualified Database.MySQL.Simple.Types  as MySQL
-
---import qualified Database.MySQL.Base          as MySQLBase
---import qualified Database.MySQL.Base.Types    as MySQLBase
-
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
 migrateMySQL :: Show a
@@ -150,13 +134,13 @@ getColumns getter def = do
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
 
     -- Find out all columns.
+    -- gb remove \WHERE TABLE_SCHEMA = ? \
     stmtClmns <- getter "SELECT COLUMN_NAME, \
                                \IS_NULLABLE, \
                                \DATA_TYPE, \
                                \COLUMN_DEFAULT \
                         \FROM INFORMATION_SCHEMA.COLUMNS \
-                        \WHERE TABLE_SCHEMA = ? \
-                          \AND TABLE_NAME   = ? \
+                          \WHERE TABLE_NAME   = ? \
                           \AND COLUMN_NAME <> ?"
     inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
@@ -529,3 +513,16 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
       go ('`':xs) = '`' : '`' : go xs
       go ( x :xs) =     x     : go xs
       go ""       = "`"
+-- | SQL code to be executed when inserting an entity.
+insertSqlMySQL :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSqlMySQL t cols _ = ISRInsertGet doInsert "SELECT LAST_INSERT_ID()"
+    where
+      doInsert = pack $ concat
+        [ "INSERT INTO "
+        , escapeDBName t
+        , "("
+        , intercalate "," $ map escapeDBName cols
+        , ") VALUES("
+        , intercalate "," (map (const "?") cols)
+        , ")"
+        ]
