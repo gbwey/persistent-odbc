@@ -18,7 +18,7 @@ library
     if flag(debug)
         cpp-options: -DDEBUG
 
-    exposed-modules:    Database.Persist.ODBC
+    exposed-modules:    Database.Persist.ODBC, Database.Persist.MigratePostgres, TestODBC
 
     ghc-options:   -Wall -O2
 
@@ -34,6 +34,11 @@ library
                 , HDBC-odbc     >= 2.2 
 --     && < 2.3
                 , persistent    >= 1.2
+                , shakespeare-text 
+                , monad-logger
+                , resourcet
+                , persistent-template
+                , bytestring
 
 source-repository head
   type:     git
