@@ -43,7 +43,7 @@ migratePostgres allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                 then do
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persistent.GenericSql.Migration
-                            [ "CREATe TABLE "
+                            [ "CREATE TABLE "
                             , T.unpack $ escape name
                             , "("
                             , T.unpack $ escape $ entityID val

@@ -41,7 +41,8 @@ BlogPost
 |]
 
 main :: IO ()
-main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtest" $ runSqlConn $ do
+-- main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtest" $ runSqlConn $ do
+main = runResourceT $ runNoLoggingT $ withODBCConn (Just MySQL) "dsn=mysql_test" $ runSqlConn $ do
     runMigration migrateAll
     _ <- insert $ Foo "test"
     liftIO $ putStrLn $ "yes!!!!"

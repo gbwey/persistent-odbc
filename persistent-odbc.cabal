@@ -18,7 +18,10 @@ library
     if flag(debug)
         cpp-options: -DDEBUG
 
-    exposed-modules:    Database.Persist.ODBC, Database.Persist.MigratePostgres, TestODBC
+    exposed-modules:    Database.Persist.ODBC
+                      , Database.Persist.MigratePostgres
+                      , Database.Persist.MigrateMySQL
+                      , TestODBC
 
     ghc-options:   -Wall -O2
 

@@ -19,6 +19,7 @@ module Database.Persist.ODBC
 import qualified Control.Exception as E -- (catch, SomeException)
 import Database.Persist.Sql
 import Database.Persist.MigratePostgres
+import Database.Persist.MigrateMySQL
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -79,7 +80,7 @@ createODBCPool :: MonadIO m
                -> m ConnectionPool
 createODBCPool dbt ci = createSqlPool $ open' dbt ci
 
-data DBType = Mysql | Postgres | Mssql deriving (Show,Read)
+data DBType = MySQL | Postgres | MSSQL deriving (Show,Read)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
@@ -257,11 +258,12 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
 
-migrate' :: Maybe DBType 
+migrate' :: Show a => Maybe DBType 
          -> [EntityDef a]
          -> (Text -> IO Statement)
          => EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' dbt allDefs getter val = case dbt of
                                     Just Postgres -> migratePostgres allDefs getter val
+                                    Just MySQL -> migrateMySQL allDefs getter val
                                     _ -> error $ "no handler for " ++ show dbt
