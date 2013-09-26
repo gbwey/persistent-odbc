@@ -132,7 +132,7 @@ getColumns getter def = do
     liftIO $ putStrLn $ "in getcolumns 1"
     liftIO $ putStrLn $ "in getcolumns vals[" ++ show vals ++ "]"
     stmtIdClmn <- getter "SELECT COLUMN_NAME, \
-                                 \cast(NULLABLE as CHAR(1)) as IS_NULLABLE, \
+                                 \cast(NULLABLE as CHAR) as IS_NULLABLE, \
                                  \DATA_TYPE, \
                                  \DATA_DEFAULT as COLUMN_DEFAULT \
                           \FROM user_tab_cols \
@@ -147,7 +147,7 @@ getColumns getter def = do
 
     -- Find out all columns.
     stmtClmns <- getter "SELECT COLUMN_NAME, \
-                               \cast(NULLABLE as CHAR), \
+                                 \cast(NULLABLE as CHAR) as IS_NULLABLE, \
                                \DATA_TYPE, \
                                \DATA_DEFAULT \
                         \FROM user_tab_cols \
@@ -165,6 +165,7 @@ getColumns getter def = do
      \WHERE a.table_name = ? \
      \and a.table_name=b.table_name \
      \and a.constraint_name=b.constraint_name \
+     \and b.constraint_type = 'R' \
                           \AND a.COLUMN_NAME <> ? \
                         \ORDER BY b.CONSTRAINT_NAME, \
                                  \a.COLUMN_NAME"
@@ -222,14 +223,15 @@ getColumn getter tname [ PersistByteString cname
       liftIO $ putStrLn $ "in getcolumn"
       stmt <- lift $ getter "SELECT \
               \UCC.TABLE_NAME as REFERENCED_TABLE_NAME, \
-              \UC.R_CONSTRAINT_NAME as CONSTRAINT_NAME \
+              \UC.CONSTRAINT_NAME as CONSTRAINT_NAME \
             \FROM USER_CONSTRAINTS  UC, \
                  \USER_CONS_COLUMNS UCC, \
-                 \USER_CONS_COLUMNS C \
+                 \USER_CONS_COLUMNS CC \
            \WHERE UC.R_CONSTRAINT_NAME = UCC.CONSTRAINT_NAME \
              \AND uc.constraint_type = 'R' \
+             \and cc.constraint_name=uc.constraint_name \
              \and uc.table_name=? \
-             \and c.column_name=? \
+             \and cc.column_name=? \
            \ORDER BY UC.TABLE_NAME, \
              \UC.R_CONSTRAINT_NAME, \
              \UCC.TABLE_NAME, \
@@ -248,7 +250,7 @@ getColumn getter tname [ PersistByteString cname
       -- Okay!
       return Column
         { cName = DBName $ T.decodeUtf8 cname
-        , cNull = null_ == "YES"
+        , cNull = null_ == "Y"
         , cSqlType = type_
         , cDefault = default_
         , cMaxLen = Nothing -- FIXME: maxLen
@@ -270,7 +272,7 @@ parseType "char"    = return SqlBool
 --parseType "long"       = return SqlInt64
 --parseType "longlong"   = return SqlInt64
 --parseType "mediumint"  = return SqlInt32
-parseType "number"     = return SqlInt64
+parseType "NUMBER"     = return SqlInt32
 -- **** todo parseType "number(a,b)"     = return SqlReal
 
 -- Double
@@ -278,23 +280,24 @@ parseType "number"     = return SqlInt64
 --parseType "double"     = return SqlReal
 --parseType "decimal"    = return SqlReal
 --parseType "newdecimal" = return SqlReal
-parseType "varchar2(100)"    = return SqlString
+parseType "VARCHAR2(100)"    = return SqlString
 -- Text
-parseType "varchar2"    = return SqlString
-parseType "text"       = return SqlString
-parseType "tinytext"   = return SqlString
-parseType "mediumtext" = return SqlString
-parseType "long"   = return SqlString
+parseType "VARCHAR2"    = return SqlString
+parseType "TEXT"       = return SqlString
+--parseType "tinytext"   = return SqlString
+--parseType "mediumtext" = return SqlString
+parseType "LONG"   = return SqlString
 -- ByteString
-parseType "varbinary"  = return SqlBlob
-parseType "blob"       = return SqlBlob
-parseType "tinyblob"   = return SqlBlob
-parseType "mediumblob" = return SqlBlob
-parseType "longblob"   = return SqlBlob
+parseType "VARBINARY"  = return SqlBlob
+--parseType "blob"       = return SqlBlob
+--parseType "tinyblob"   = return SqlBlob
+--parseType "mediumblob" = return SqlBlob
+--parseType "longblob"   = return SqlBlob
 -- Time-related
 --parseType "time"       = return SqlTime
 --parseType "datetime"   = return SqlDayTime
-parseType "timestamp"  = return SqlDayTime
+parseType "TIMESTAMP"  = return SqlDayTime
+parseType "TIMESTAMP(6)"  = return SqlDayTime
 --parseType "date"       = return SqlDay
 --parseType "newdate"    = return SqlDay
 --parseType "year"       = return SqlDay
@@ -360,7 +363,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
                             (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
                             _ -> []
                 -- Type and nullability
-                modType | type_ == type_' && isNull == isNull' = []
+                modType | tp type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
@@ -370,6 +373,9 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
+tp SqlInt32 SqlInt64 = True
+tp SqlInt64 SqlInt32 = True
+tp a b = a==b
 
 ----------------------------------------------------------------------
 
@@ -400,7 +406,7 @@ showSqlType SqlBlob    Nothing    = "BLOB"
 showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
 showSqlType SqlBool    _          = "CHAR"
 showSqlType SqlDay     _          = "DATE"
-showSqlType SqlDayTime _          = "TIMESTAMP"
+showSqlType SqlDayTime _          = "TIMESTAMP(6)"
 showSqlType SqlDayTimeZoned _     = "VARCHAR2(50)"
 showSqlType SqlInt32   _          = "NUMBER"
 showSqlType SqlInt64   _          = "NUMBER"
@@ -409,7 +415,7 @@ showSqlType (SqlNumeric s prec) _ = "NUMBER(" ++ show s ++ "," ++ show prec ++ "
 showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
-showSqlType (SqlOther t) _        = T.unpack t
+showSqlType (SqlOther t) _        = trace ("oops in showSqlType " ++ show t) $ T.unpack t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -442,7 +448,7 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
 showAlterTable table (DropUniqueConstraint cname) = concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " DROP "
+    , " DROP CONSTRAINT "
     , escapeDBName cname
     ]
 
@@ -453,10 +459,11 @@ showAlter table (oldName, Change (Column n nu t def maxLen _ref)) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " CHANGE "
-    , escapeDBName oldName
+    , " MODIFY ("
+  --  , escapeDBName oldName
     , " "
     , showColumn (Column n nu t def maxLen Nothing)
+    , ")"
     ]
 showAlter table (_, Add' col) =
     concat
@@ -539,7 +546,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
 -- | SQL code to be executed when inserting an entity.
 insertSqlOracle :: DBName -> [DBName] -> DBName -> InsertSqlResult
 -- should be the other way around:get next value then use that in the insert
-insertSqlOracle t cols idcolmaybe = trace ("idcolmaybe="++show idcolmaybe++" doinsert=" ++ show doInsert) $ ISRInsertGet doInsert $ T.pack ("select " ++ getSeqNameEscaped t ++ ".currval from dual")
+insertSqlOracle t cols idcolmaybe = trace ("idcolmaybe="++show idcolmaybe++" doinsert=" ++ show doInsert) $ ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
