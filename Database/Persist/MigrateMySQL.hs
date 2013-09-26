@@ -213,6 +213,7 @@ getColumn getter tname [ PersistByteString cname
                             \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
                               \WHERE TABLE_NAME   = ? \
                               \AND COLUMN_NAME  = ? \
+                              \and REFERENCED_TABLE_SCHEMA=schema() \
                             \ORDER BY CONSTRAINT_NAME, \
                                      \COLUMN_NAME"
       let vars = [ PersistText $ unDBName $ tname
@@ -223,7 +224,7 @@ getColumn getter tname [ PersistByteString cname
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref]] ->
                    return $ Just (DBName $ T.decodeUtf8 tab, DBName $ T.decodeUtf8 ref)
-               _ -> fail "MySQL.getColumn/getRef: never here"
+               a1 -> fail $ "MySQL.getColumn/getRef: never here error[" ++ show a1 ++ "]"
 
       -- Okay!
       return Column

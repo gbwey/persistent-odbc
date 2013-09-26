@@ -12,14 +12,25 @@ import Control.Monad.Logger
 import Database.HDBC 
 import Database.HDBC.ODBC
 import Text.Shakespeare.Text
-import Data.Text.Lazy 
+import qualified Data.Text.Lazy 
 import Data.Time (getCurrentTime,UTCTime)
-
--- import qualified Data.Text.Lazy.IO as TLIO
--- http://www.yesodweb.com/book/shakespearean-templates
--- TLIO.putStrLn [lt|You have #{show $ itemQty item} #{itemName item}.|]
+import System.Environment (getArgs)
+import Employment
+import Data.Conduit
+import qualified Data.Conduit.List as CL
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+Persony
+    name String
+    employment Employment
+    
+Personx
+    name String Eq Ne Desc
+    age Int Lt Asc
+    color String Maybe Eq Ne
+    PersonxNameKey name
+    deriving Show
+
 Testnum
     bar Int
     znork Int Maybe
@@ -42,8 +53,18 @@ BlogPost
 |]
 
 main :: IO ()
-main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtest" $ runSqlConn $ do
---main = runResourceT $ runNoLoggingT $ withODBCConn (Just MySQL) "dsn=mysql_test" $ runSqlConn $ do
+main = do
+  [arg] <- getArgs
+  let (dbtype,dsn) = 
+       case arg of
+           "p" -> (Just Postgres,"dsn=pg_gbtest")
+           "m" -> (Just MySQL,"dsn=mysql_test")
+           "s" -> (Just MSSQL,"dsn=mssql_testdb; Trusted_Connection=True")
+           "o" -> (Just Oracle,"dsn=oracle_testdb;")
+           xs -> error $ "unknown option:choose p m s o found[" ++ xs ++ "]"
+
+  runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
+    liftIO $ putStrLn $ "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn $ "after migration"
     a1 <- insert $ Foo "test"
@@ -58,8 +79,8 @@ main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtes
     _ <- insert $ BlogPost "My fr1st p0st" johnId
     _ <- insert $ BlogPost "One more for good measure" johnId
 
-    oneJohnPost <- selectList [BlogPostAuthorId ==. johnId] [LimitTo 1]
-    liftIO $ print (oneJohnPost :: [Entity BlogPost])
+    --oneJohnPost <- selectList [BlogPostAuthorId ==. johnId] [LimitTo 1]
+    --liftIO $ print (oneJohnPost :: [Entity BlogPost])
 
     john <- get johnId
     liftIO $ print (john :: Maybe Person)
@@ -69,27 +90,79 @@ main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtes
     liftIO $ putStrLn $ "v1=" ++ show v1
     liftIO $ putStrLn $ "v2=" ++ show v2
 
-    --delete janeId
-    --deleteWhere [BlogPostAuthorId ==. johnId]
--- handles dml + multiple statements at once    
-main1::IO ()
-main1 = handleSqlError $ do 
-  conn <- connectODBC "dsn=pg_gbtest"
-  a1 <- runRaw conn "drop table foo; drop sequence foo_id_seq;" 
-  print a1
-  commit conn 
-  let t3=[lt|
-    CREATE sequence foo_id_seq START WITH 1 increment BY 1 no maxvalue no minvalue cache 20 no cycle;
-    CREATE TABLE foo (
-    id integer default nextval ('"foo_id_seq"'::regclass) not null,
-    PRIMARY KEY (id),
-    name character varying not null
-    );
-  |]
-  a3 <- runRaw conn $ Data.Text.Lazy.unpack t3
-  print a3
-  commit conn 
-  disconnect conn
-  putStrLn "done"
+    delete janeId
+    deleteWhere [BlogPostAuthorId ==. johnId]
+    test3
+    test0
+        
+test0 = do
+    pid <- insert $ Persony "Dude" Retired
+    liftIO $ print pid
+    pid <- insert $ Persony "Dude1" Employed
+    liftIO $ print pid
+    pid <- insert $ Persony "Snoyman aa" Unemployed
+    liftIO $ print pid
+    pid <- insert $ Persony "bbb Snoyman" Employed
+    liftIO $ print pid
+
+    let sql = "SELECT name FROM Persony WHERE name LIKE '%Snoyman'"
+    rawQuery sql [] $$ CL.mapM_ (liftIO . print)
+    
+    
+test3 = do
+    --initialize (undefined :: Personx)
+    pid <- insert $ Personx "Michael" 25 Nothing
+    liftIO $ print pid
+
+    p1 <- get pid
+    liftIO $ putStrLn $ show p1
+
+    replace pid $ Personx "Michael" 26 Nothing
+    p2 <- get pid
+    liftIO $ print p2
+
+    p3 <- selectList [PersonxName ==. "Michael"] []
+    liftIO $ print p3
+
+    _ <- insert $ Personx "Michael2" 27 Nothing
+    deleteWhere [PersonxName ==. "Michael2"]
+    p4 <- selectList [PersonxAge <. 28] []
+    liftIO $ print p4
+
+    update pid [PersonxAge =. 28]
+    p5 <- get pid
+    liftIO $ print p5
+
+    updateWhere [PersonxName ==. "Michael"] [PersonxAge =. 29]
+    p6 <- get pid
+    liftIO $ print p6
+
+    _ <- insert $ Personx "Eliezer" 2 $ Just "blue"
+    p7 <- selectList [] [Asc PersonxAge]
+    liftIO $ print p7
+
+    _ <- insert $ Personx "Abe" 30 $ Just "black"
+    p8 <- selectList [PersonxAge <. 30] [Desc PersonxName]
+    liftIO $ print p8
+
+    _ <- insert $ Personx "Abe1" 31 $ Just "brown"
+    p9 <- selectList [PersonxName ==. "Abe1"] []
+    liftIO $ print p9
+
+    p10 <- getBy $ PersonxNameKey "Michael"
+    liftIO $ print p10
+
+    p11 <- selectList [PersonxColor ==. Just "blue"] []
+    liftIO $ print p11
+
+    p12 <- selectList [PersonxColor ==. Nothing] []
+    liftIO $ print p12
+
+    p13 <- selectList [PersonxColor !=. Nothing] []
+    liftIO $ print p13
+
+    delete pid
+    plast <- get pid
+    liftIO $ print plast
 
     

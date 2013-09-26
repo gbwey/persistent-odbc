@@ -418,7 +418,7 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , " ADD CONSTRAINT "
     , escapeDBName cname
     , " UNIQUE("
-    , intercalate "," $ map escapeDBName' cols
+    , intercalate "," $ map (escapeDBName . fst) cols
     , ")"
     ]
     where

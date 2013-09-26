@@ -165,7 +165,7 @@ getColumns getter def = do
      \WHERE a.table_name = ? \
      \and a.table_name=b.table_name \
      \and a.constraint_name=b.constraint_name \
-     \and b.constraint_type = 'R' \
+     \and b.constraint_type not in ('R','C') \
                           \AND a.COLUMN_NAME <> ? \
                         \ORDER BY b.CONSTRAINT_NAME, \
                                  \a.COLUMN_NAME"
@@ -437,7 +437,7 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , " ADD CONSTRAINT "
     , escapeDBName cname
     , " UNIQUE("
-    , intercalate "," $ map escapeDBName' cols
+    , intercalate "," $ map (escapeDBName . fst) cols
     , ")"
     ]
     where
