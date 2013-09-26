@@ -227,7 +227,12 @@ test5 = do
     liftIO $ putStrLn $ "xs=" ++ show xs
     ys <- selectList [] [Desc TestotherBs2] 
     liftIO $ putStrLn $ "ys=" ++ show ys
-    -- insert $ Testrational (4%6)
+    r1 <- insert $ Testrational (4%6)
+    r2 <- insert $ Testrational (13 % 14)
+    liftIO $ putStrLn $ "r1=" ++ show r1
+    liftIO $ putStrLn $ "r2=" ++ show r2
+    h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
+    liftIO $ putStrLn $ "h1=" ++ show h1
 
 
 test4 = do

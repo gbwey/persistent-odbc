@@ -199,7 +199,7 @@ instance DC.Convertible P HSV.SqlValue where
     safeConvert (P (PersistText t))             = Right $ HSV.toSql t
     safeConvert (P (PersistByteString bs))      = Right $ HSV.toSql bs
     safeConvert (P (PersistInt64 i))            = Right $ HSV.toSql i
-    safeConvert (P (PersistRational r))         = Right $ HSV.toSql r
+    safeConvert (P (PersistRational r))         = Right $ HSV.toSql (fromRational r::Double)
     safeConvert (P (PersistDouble d))           = Right $ HSV.toSql d
     safeConvert (P (PersistBool b))             = Right $ HSV.SqlInteger (if b then 1 else 0)
     safeConvert (P (PersistDay d))              = Right $ HSV.toSql d
