@@ -344,7 +344,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
                             (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
                             _ -> []
                 -- Type and nullability
-                modType | type_ == type_' && isNull == isNull' = []
+                modType | tpcheck type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
@@ -354,7 +354,9 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
-
+tpcheck SqlDayTime SqlString = True
+tpcheck SqlString SqlDayTime = True
+tpcheck a b = a==b
 ----------------------------------------------------------------------
 
 
