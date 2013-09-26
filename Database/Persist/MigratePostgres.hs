@@ -27,6 +27,7 @@ import qualified Data.Conduit.List as CL
 import Data.Maybe (mapMaybe)
 
 import qualified Data.Text.Encoding as TE
+import Debug.Trace
 
 migratePostgres :: [EntityDef a]
          -> (Text -> IO Statement)
@@ -83,14 +84,35 @@ getColumns :: (Text -> IO Statement)
            -> EntityDef a
            -> IO [Either Text (Either Column (DBName, [DBName]))]
 getColumns getter def = do
-    stmt <- getter "SELECT column_name,is_nullable,udt_name,column_default,numeric_precision,numeric_scale FROM information_schema.columns WHERE table_name=? AND column_name <> ?"
+    let sql=concat ["SELECT "
+                          ,"column_name "
+                          ,",is_nullable "
+                          ,",udt_name "
+                          ,",column_default "
+                          ,",numeric_precision "
+                          ,",numeric_scale "
+                          ,"FROM information_schema.columns "
+                          ,"WHERE table_catalog=current_database() "
+                          ,"AND table_name=? "
+                          ,"AND column_name <> ?"]
+  
+    stmt <- getter $ pack sql
     let vals =
             [ PersistText $ unDBName $ entityDB def
             , PersistText $ unDBName $ entityID def
             ]
     cs <- runResourceT $ stmtQuery stmt vals $$ helper
-    stmt' <- getter
-        "SELECT constraint_name, column_name FROM information_schema.constraint_column_usage WHERE table_name=? AND column_name <> ? ORDER BY constraint_name, column_name"
+    let sql=concat ["SELECT "
+                          ,"constraint_name "
+                          ,",column_name "
+                          ,"FROM information_schema.constraint_column_usage "
+                          ,"WHERE table_catalog=current_database() "
+                          ,"AND table_name=? "
+                          ,"AND column_name <> ? "
+                          ,"ORDER BY constraint_name, column_name"]
+
+    stmt' <- getter $ pack sql
+        
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
     return $ cs ++ us
   where
@@ -100,7 +122,9 @@ getColumns getter def = do
             Nothing -> return $ front []
             Just [PersistText con, PersistText col] ->
                 getAll (front . (:) (con, col))
-            Just _ -> getAll front -- FIXME error message?
+            Just [PersistByteString con, PersistByteString col] -> do
+                getAll (front . (:) (TE.decodeUtf8 con, TE.decodeUtf8 col)) 
+            Just xx -> error ("oops: unexpected datatype returned odbc postgres  xx="++show xx) -- $ getAll front -- FIXME error message?
     helperU = do
         rows <- getAll id
         return $ map (Right . Right . (DBName . fst . head &&& map (DBName . snd)))
@@ -178,15 +202,16 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         }
   where
     getRef cname = do
-        let sql = pack $ concat
+        let sql = concat
                 [ "SELECT COUNT(*) FROM "
                 , "information_schema.table_constraints "
-                , "WHERE table_name=? "
+                , "WHERE table_catalog=current_database()"
+                , "AND table_name=?"
                 , "AND constraint_type='FOREIGN KEY' "
                 , "AND constraint_name=?"
                 ]
         let ref = refName tname cname
-        stmt <- getter sql
+        stmt <- getter $ pack sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
                      , PersistText $ unDBName ref
