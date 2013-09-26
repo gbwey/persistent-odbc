@@ -20,6 +20,7 @@ import qualified Control.Exception as E -- (catch, SomeException)
 import Database.Persist.Sql
 import qualified Database.Persist.MigratePostgres as PG
 import qualified Database.Persist.MigrateMySQL as MYSQL
+import qualified Database.Persist.MigrateMSSQL as MSSQL
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -254,6 +255,7 @@ migrate' dbt allDefs getter val =
   case dbt of
     Just Postgres -> PG.migratePostgres allDefs getter val
     Just MySQL -> MYSQL.migrateMySQL allDefs getter val
+    Just MSSQL -> MSSQL.migrateMSSQL allDefs getter val
                                     _ -> error $ "no handler for " ++ show dbt
 
 -- need different escape strategies for each type
@@ -265,6 +267,7 @@ insertSql' dbtype t cols id' =
   case dbtype of
     Just Postgres -> PG.insertSqlPostgres t cols id'
     Just MySQL -> MYSQL.insertSqlMySQL t cols id'
+    Just MSSQL -> MSSQL.insertSqlMSSQL t cols id'
     _ -> error $ "no handler for " ++ show dbtype
 
 escape :: Maybe DBType -> DBName -> Text
@@ -272,5 +275,6 @@ escape dbtype dbname =
   case dbtype of
     Just Postgres -> PG.escape dbname
     Just MySQL -> T.pack $ MYSQL.escapeDBName dbname
+    Just MSSQL -> T.pack $ MSSQL.escapeDBName dbname
     _ -> error $ "no escape handler for " ++ show dbtype
 

@@ -21,6 +21,7 @@ library
     exposed-modules:    Database.Persist.ODBC
                       , Database.Persist.MigratePostgres
                       , Database.Persist.MigrateMySQL
+                      , Database.Persist.MigrateMSSQL
                       , TestODBC
 
     ghc-options:   -Wall -O2

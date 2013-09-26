@@ -13,7 +13,7 @@ import Database.HDBC
 import Database.HDBC.ODBC
 import Text.Shakespeare.Text
 import Data.Text.Lazy 
-import Data.Time (UTCTime)
+import Data.Time (getCurrentTime,UTCTime)
 
 -- import qualified Data.Text.Lazy.IO as TLIO
 -- http://www.yesodweb.com/book/shakespearean-templates
@@ -45,8 +45,11 @@ main :: IO ()
 main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtest" $ runSqlConn $ do
 --main = runResourceT $ runNoLoggingT $ withODBCConn (Just MySQL) "dsn=mysql_test" $ runSqlConn $ do
     runMigration migrateAll
-    _ <- insert $ Foo "test"
-    liftIO $ putStrLn $ "yes!!!!"
+    liftIO $ putStrLn $ "after migration"
+    a1 <- insert $ Foo "test"
+    liftIO $ putStrLn $ "a1=" ++ show a1
+    aa <- selectList ([]::[Filter Foo]) []
+    liftIO $ putStrLn $ "aa=" ++ show aa
     johnId <- insert $ Person "John Doe" $ Just 35
     liftIO $ putStrLn $ "johnId[" ++ show johnId ++ "]"
     janeId <- insert $ Person "Jane Doe" Nothing
@@ -60,6 +63,11 @@ main = runResourceT $ runNoLoggingT $ withODBCConn (Just Postgres) "dsn=pg_gbtes
 
     john <- get johnId
     liftIO $ print (john :: Maybe Person)
+    dt <- liftIO getCurrentTime
+    v1 <- insert $ Testnum 100 Nothing "hello" (Just "world") dt Nothing
+    v2 <- insert $ Testnum 100 (Just 222) "dude" Nothing dt (Just "something")
+    liftIO $ putStrLn $ "v1=" ++ show v1
+    liftIO $ putStrLn $ "v2=" ++ show v2
 
     --delete janeId
     --deleteWhere [BlogPostAuthorId ==. johnId]
