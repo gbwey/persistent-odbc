@@ -264,8 +264,9 @@ getColumn _ _ x =
 -- | Parse the type of column as returned by Oracle's
 -- @INFORMATION_SCHEMA@ tables.
 -- need to handle anything numeric with non 0 second value as real
+-- must be upper case!!!!
 parseType :: Monad m => ByteString -> m SqlType
-parseType "char"    = return SqlBool
+parseType "CHAR"    = return SqlBool
 -- Ints
 --parseType "int"        = return SqlInt32
 --parseType "short"      = return SqlInt32
@@ -276,8 +277,8 @@ parseType "NUMBER"     = return SqlInt32
 -- **** todo parseType "number(a,b)"     = return SqlReal
 
 -- Double
---parseType "float"      = return SqlReal
---parseType "double"     = return SqlReal
+parseType "FLOAT"      = return SqlReal
+parseType "DOUBLE"     = return SqlReal
 --parseType "decimal"    = return SqlReal
 --parseType "newdecimal" = return SqlReal
 parseType "VARCHAR2(100)"    = return SqlString
@@ -410,7 +411,7 @@ showSqlType SqlDayTime _          = "TIMESTAMP(6)"
 showSqlType SqlDayTimeZoned _     = "VARCHAR2(50)"
 showSqlType SqlInt32   _          = "NUMBER"
 showSqlType SqlInt64   _          = "NUMBER"
-showSqlType SqlReal    _          = "REAL"
+showSqlType SqlReal    _          = "FLOAT"
 showSqlType (SqlNumeric s prec) _ = "NUMBER(" ++ show s ++ "," ++ show prec ++ ")"
 showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"

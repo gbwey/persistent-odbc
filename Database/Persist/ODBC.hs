@@ -39,8 +39,9 @@ import Data.Text (Text)
 import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Data.Int (Int64)
-
+import Debug.Trace 
 import Data.Conduit
+import GHC.Int (Int32(..),Int64(..))
 
 --import Database.Persist.MigratePostgres
 
@@ -54,7 +55,7 @@ type ConnectionString = String
 -- 'ConnectionPool' outside the action since it may be already
 -- been released.
 withODBCPool :: MonadIO m
-             => Maybe DBType 
+             => DBType 
              -> ConnectionString
              -- ^ Connection string to the database.
              -> Int
@@ -72,7 +73,7 @@ withODBCPool dbt ci = withSqlPool $ open' dbt ci
 -- unneeded.  Use 'withODBCPool' for an automatic resource
 -- control.
 createODBCPool :: MonadIO m
-               => Maybe DBType 
+               => DBType 
                -> ConnectionString
                -- ^ Connection string to the database.
                -> Int
@@ -86,19 +87,19 @@ data DBType = MySQL | Postgres | MSSQL | Oracle deriving (Show,Read)
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withODBCConn :: (MonadIO m, MonadBaseControl IO m)
-             => Maybe DBType -> ConnectionString -> (Connection -> m a) -> m a
+             => DBType -> ConnectionString -> (Connection -> m a) -> m a
 withODBCConn dbt cs ma = withSqlConn (open' dbt cs) ma
 
-open' :: Maybe DBType -> ConnectionString -> IO Connection
+open' :: DBType -> ConnectionString -> IO Connection
 open' dbt cstr = do
     O.connectODBC cstr >>= openSimpleConn dbt
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
-openSimpleConn :: Maybe DBType -> O.Connection -> IO Connection
+openSimpleConn :: DBType -> O.Connection -> IO Connection
 openSimpleConn dbtype conn = do
     smap <- newIORef $ Map.empty
     return Connection
-        { connPrepare       = prepare' conn
+        { connPrepare       = prepare' dbtype conn
         , connStmtMap       = smap
         , connInsertSql     = insertSql' dbtype
         , connClose         = O.disconnect conn
@@ -114,8 +115,8 @@ openSimpleConn dbtype conn = do
         , connRDBMS         = "odbc" -- ?
         }
 
-prepare' :: O.Connection -> Text -> IO Statement
-prepare' conn sql = do
+prepare' :: DBType -> O.Connection -> Text -> IO Statement
+prepare' dbtype conn sql = do
 #if DEBUG
     putStrLn $ "Database.Persist.ODBC.prepare': sql = " ++ T.unpack sql
 #endif
@@ -124,24 +125,25 @@ prepare' conn sql = do
     return Statement
         { stmtFinalize  = O.finish stmt
         , stmtReset     = return () -- rollback conn ?
-        , stmtExecute   = execute' stmt
-        , stmtQuery     = withStmt' stmt
+        , stmtExecute   = execute' dbtype stmt
+        , stmtQuery     = withStmt' dbtype stmt
         }
 
-execute' :: O.Statement -> [PersistValue] -> IO Int64
-execute' query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
+execute' :: DBType -> O.Statement -> [PersistValue] -> IO Int64
+execute' dbtype query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
 
 withStmt' :: MonadResource m
-          => O.Statement
+          => DBType 
+          -> O.Statement
           -> [PersistValue]
           -> Source m [PersistValue]
-withStmt' stmt vals = do
+withStmt' dbtype stmt vals = do
 #if DEBUG
     liftIO $ putStrLn $ "withStmt': vals: " ++ show vals
 #endif
     bracketP openS closeS pull
   where
-    openS       = execute' stmt vals >> return ()
+    openS       = execute' dbtype stmt vals >> return ()
     closeS _    = O.finish stmt
     pull x      = do
         mr <- liftIO $ O.fetchRow stmt
@@ -199,7 +201,7 @@ instance DC.Convertible P HSV.SqlValue where
     safeConvert (P (PersistInt64 i))            = Right $ HSV.toSql i
     safeConvert (P (PersistRational r))         = Right $ HSV.toSql r
     safeConvert (P (PersistDouble d))           = Right $ HSV.toSql d
-    safeConvert (P (PersistBool b))             = Right $ HSV.toSql b
+    safeConvert (P (PersistBool b))             = Right $ HSV.SqlInteger (if b then 1 else 0)
     safeConvert (P (PersistDay d))              = Right $ HSV.toSql d
     safeConvert (P (PersistTimeOfDay t))        = Right $ HSV.toSql t
     safeConvert (P (PersistUTCTime t))          = Right $ HSV.toSql t
@@ -230,7 +232,7 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlInt32 i)         = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlInt64 i)         = Right $ P $ PersistInt64 i
     safeConvert (HSV.SqlInteger i)       = Right $ P $ PersistInt64 $ fromIntegral i
-    safeConvert (HSV.SqlChar c)          = Right $ P $ PersistText $ T.singleton c
+    safeConvert (HSV.SqlChar c)          = Right $ P $ charChk c
     safeConvert (HSV.SqlBool b)          = Right $ P $ PersistBool b
     safeConvert (HSV.SqlDouble d)        = Right $ P $ PersistDouble d
     safeConvert (HSV.SqlRational r)      = Right $ P $ PersistRational r
@@ -246,39 +248,43 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlEpochTime e)     = Right $ P $ PersistInt64 $ fromIntegral e
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
+charChk '\0' = PersistBool True
+charChk '\1' = PersistBool False
+charChk c = PersistText $ T.singleton c
 
-migrate' :: Show a => Maybe DBType 
+
+migrate' :: Show a => DBType 
          -> [EntityDef a]
          -> (Text -> IO Statement)
          => EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' dbt allDefs getter val = 
   case dbt of
-    Just Postgres -> PG.migratePostgres allDefs getter val
-    Just MySQL -> MYSQL.migrateMySQL allDefs getter val
-    Just MSSQL -> MSSQL.migrateMSSQL allDefs getter val
-    Just Oracle -> ORACLE.migrateOracle allDefs getter val
-                                    _ -> error $ "no handler for " ++ show dbt
+    Postgres -> PG.migratePostgres allDefs getter val
+    MySQL -> MYSQL.migrateMySQL allDefs getter val
+    MSSQL -> MSSQL.migrateMSSQL allDefs getter val
+    Oracle -> ORACLE.migrateOracle allDefs getter val
+    -- _ -> error $ "no handler for " ++ show dbt
 
 -- need different escape strategies for each type
 -- need different ways to get the id back:returning works for postgres
 -- SELECT LAST_INSERT_ID(); for mysql
 
-insertSql' :: Maybe DBType -> DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' :: DBType -> DBName -> [DBName] -> DBName -> InsertSqlResult
 insertSql' dbtype t cols id' = 
   case dbtype of
-    Just Postgres -> PG.insertSqlPostgres t cols id'
-    Just MySQL -> MYSQL.insertSqlMySQL t cols id'
-    Just MSSQL -> MSSQL.insertSqlMSSQL t cols id'
-    Just Oracle -> ORACLE.insertSqlOracle t cols id'
-    _ -> error $ "no handler for " ++ show dbtype
+    Postgres -> PG.insertSqlPostgres t cols id'
+    MySQL -> MYSQL.insertSqlMySQL t cols id'
+    MSSQL -> MSSQL.insertSqlMSSQL t cols id'
+    Oracle -> ORACLE.insertSqlOracle t cols id'
+--    _ -> error $ "no handler for " ++ show dbtype
 
-escape :: Maybe DBType -> DBName -> Text
+escape :: DBType -> DBName -> Text
 escape dbtype dbname = 
   case dbtype of
-    Just Postgres -> PG.escape dbname
-    Just MySQL -> T.pack $ MYSQL.escapeDBName dbname
-    Just MSSQL -> T.pack $ MSSQL.escapeDBName dbname
-    Just Oracle -> T.pack $ ORACLE.escapeDBName dbname
-    _ -> error $ "no escape handler for " ++ show dbtype
+    Postgres -> PG.escape dbname
+    MySQL -> T.pack $ MYSQL.escapeDBName dbname
+    MSSQL -> T.pack $ MSSQL.escapeDBName dbname
+    Oracle -> T.pack $ ORACLE.escapeDBName dbname
+    -- _ -> error $ "no escape handler for " ++ show dbtype
 

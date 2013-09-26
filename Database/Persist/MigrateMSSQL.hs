@@ -260,6 +260,7 @@ parseType "longlong"   = return SqlInt64
 parseType "mediumint"  = return SqlInt32
 parseType "bigint"     = return SqlInt64
 -- Double
+parseType "real"      = return SqlReal
 parseType "float"      = return SqlReal
 parseType "double"     = return SqlReal
 parseType "decimal"    = return SqlReal
@@ -386,7 +387,7 @@ showSqlType :: SqlType
             -> String
 showSqlType SqlBlob    Nothing    = "BLOB"
 showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
-showSqlType SqlBool    _          = "TINYINT(1)"
+showSqlType SqlBool    _          = "TINYINT"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "DATETIME2"
 showSqlType SqlDayTimeZoned _     = "VARCHAR(50)"

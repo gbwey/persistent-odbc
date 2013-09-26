@@ -19,10 +19,23 @@ import Employment
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 
+import qualified Database.HDBC as H
+import qualified Database.HDBC.ODBC as H
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+Test0 
+    mybool Bool
+    deriving Show
+Test1 
+    flag Bool
+    flag1 Bool Maybe
+    dbl Double 
+    db2 Double Maybe
+    deriving Show
+    
 Persony
     name String
     employment Employment
+    deriving Show
     
 Personx
     name String Eq Ne Desc
@@ -57,10 +70,10 @@ main = do
   [arg] <- getArgs
   let (dbtype,dsn) = 
        case arg of
-           "p" -> (Just Postgres,"dsn=pg_gbtest")
-           "m" -> (Just MySQL,"dsn=mysql_test")
-           "s" -> (Just MSSQL,"dsn=mssql_testdb; Trusted_Connection=True")
-           "o" -> (Just Oracle,"dsn=oracle_testdb;")
+           "p" -> (Postgres,"dsn=pg_gbtest")
+           "m" -> (MySQL,"dsn=mysql_test")
+           "s" -> (MSSQL,"dsn=mssql_testdb; Trusted_Connection=True")
+           "o" -> (Oracle,"dsn=oracle_testdb;")
            xs -> error $ "unknown option:choose p m s o found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
@@ -93,9 +106,28 @@ main = do
     delete janeId
     deleteWhere [BlogPostAuthorId ==. johnId]
     test3
-    test0
+    test0 dbtype
+    testa 
+    if True then testb else return ()
+
+testa = do
+    aaa <- insert $ Test0 False 
+    liftIO $ putStrLn $ show aaa
         
-test0 = do
+testb = do    
+    a1 <- insert $ Test1 True (Just False) 100.3 Nothing
+    liftIO $ putStrLn $ "a1=" ++ show a1
+    a2 <- insert $ Test1 False Nothing 100.3 (Just 12.44)
+    liftIO $ putStrLn $ "a2=" ++ show a2
+    a3 <- insert $ Test1 True (Just True) 100.3 (Just 11.11)
+    liftIO $ putStrLn $ "a3=" ++ show a3
+    a4 <- insert $ Test1 False Nothing 100.3 Nothing
+    liftIO $ putStrLn $ "a4=" ++ show a4
+    ret <- selectList ([]::[Filter Test1]) [] 
+    liftIO $ putStrLn $ "ret=" ++ show ret
+
+    
+test0 dbtype = do
     pid <- insert $ Persony "Dude" Retired
     liftIO $ print pid
     pid <- insert $ Persony "Dude1" Employed
@@ -105,7 +137,9 @@ test0 = do
     pid <- insert $ Persony "bbb Snoyman" Employed
     liftIO $ print pid
 
-    let sql = "SELECT name FROM Persony WHERE name LIKE '%Snoyman'"
+    let sql = case dbtype of 
+                Oracle -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
+                _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
     
