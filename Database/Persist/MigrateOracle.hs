@@ -546,14 +546,13 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
 insertSqlOracle :: DBName -> [DBName] -> DBName -> InsertSqlResult
--- should be the other way around:get next value then use that in the insert
-insertSqlOracle t cols idcolmaybe = trace ("idcolmaybe="++show idcolmaybe++" doinsert=" ++ show doInsert) $ ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
+insertSqlOracle t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
         , escapeDBName t
         , "("
-        , escapeDBName $ DBName $ "id" -- gb need the exact case of id!
+        , escapeDBName idcol
         , (if null cols then "" else ",")
         , intercalate "," $ map escapeDBName cols
         , ") VALUES("

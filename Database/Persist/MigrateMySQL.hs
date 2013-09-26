@@ -128,7 +128,8 @@ getColumns getter def = do
                                  \DATA_TYPE, \
                                  \COLUMN_DEFAULT \
                           \FROM INFORMATION_SCHEMA.COLUMNS \
-                          \WHERE TABLE_NAME   = ? \
+                        \WHERE  table_schema=schema() \
+                        \AND TABLE_NAME   = ? \
                             \AND COLUMN_NAME  = ?"
     inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
@@ -140,7 +141,8 @@ getColumns getter def = do
                                \DATA_TYPE, \
                                \COLUMN_DEFAULT \
                         \FROM INFORMATION_SCHEMA.COLUMNS \
-                          \WHERE TABLE_NAME   = ? \
+                        \WHERE  table_schema=schema() \
+                        \AND TABLE_NAME   = ? \
                           \AND COLUMN_NAME <> ?"
     inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
@@ -150,7 +152,8 @@ getColumns getter def = do
     stmtCntrs <- getter "SELECT CONSTRAINT_NAME, \
                                \COLUMN_NAME \
                         \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                        \WHERE TABLE_NAME   = ? \
+                        \WHERE  table_schema=schema() \
+                        \AND TABLE_NAME   = ? \
                           \AND COLUMN_NAME <> ? \
                           \AND REFERENCED_TABLE_SCHEMA IS NULL \
                         \ORDER BY CONSTRAINT_NAME, \
@@ -208,10 +211,12 @@ getColumn getter tname [ PersistByteString cname
       -- Foreign key (if any)
       -- gb removed \WHERE TABLE_SCHEMA = ? \
       -- gb removed \AND REFERENCED_TABLE_SCHEMA = ? \
+      -- gb need to pass in the schema at some point:at the moment use a built in function so we restrict the search to current schema
       stmt <- lift $ getter "SELECT REFERENCED_TABLE_NAME, \
                                    \CONSTRAINT_NAME \
                             \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
-                              \WHERE TABLE_NAME   = ? \
+                        \WHERE  table_schema=schema() \
+                        \AND TABLE_NAME   = ? \
                               \AND COLUMN_NAME  = ? \
                               \and REFERENCED_TABLE_SCHEMA=schema() \
                             \ORDER BY CONSTRAINT_NAME, \
