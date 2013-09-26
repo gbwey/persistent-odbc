@@ -281,12 +281,13 @@ parseType "longblob"   = return SqlBlob
 -- Time-related
 parseType "time"       = return SqlTime
 parseType "datetime"   = return SqlDayTime
+parseType "datetime2"  = return SqlDayTime
 parseType "timestamp"  = return SqlDayTime
 parseType "date"       = return SqlDay
 parseType "newdate"    = return SqlDay
 parseType "year"       = return SqlDay
 -- Other
-parseType b            = return $ SqlOther $ T.decodeUtf8 b
+parseType b            = error $ "oops " ++ show b --return $ SqlOther $ T.decodeUtf8 b
 
 
 ----------------------------------------------------------------------
@@ -387,7 +388,7 @@ showSqlType SqlBlob    Nothing    = "BLOB"
 showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
 showSqlType SqlBool    _          = "TINYINT(1)"
 showSqlType SqlDay     _          = "DATE"
-showSqlType SqlDayTime _          = "DATETIME"
+showSqlType SqlDayTime _          = "DATETIME2"
 showSqlType SqlDayTimeZoned _     = "VARCHAR(50)"
 showSqlType SqlInt32   _          = "INT"
 showSqlType SqlInt64   _          = "BIGINT"
@@ -524,7 +525,8 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
 insertSqlMSSQL :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSqlMSSQL t cols _ = trace ("doinsert=" ++ show doInsert) $ ISRInsertGet doInsert "SELECT @@identity"
+-- should use scope_identity() but doesnt work :gives null
+insertSqlMSSQL t cols _ = ISRInsertGet doInsert "SELECT @@identity"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
