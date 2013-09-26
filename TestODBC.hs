@@ -13,7 +13,11 @@ import Database.HDBC
 import Database.HDBC.ODBC
 import Text.Shakespeare.Text
 import qualified Data.Text.Lazy 
+import Data.Text (Text(..))
+
 import Data.Time (getCurrentTime,UTCTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+
 import System.Environment (getArgs)
 import Employment
 import Data.Conduit
@@ -21,6 +25,17 @@ import qualified Data.Conduit.List as CL
 
 import qualified Database.HDBC as H
 import qualified Database.HDBC.ODBC as H
+
+import FtypeEnum
+import qualified Database.Esqueleto as E
+import Database.Esqueleto (select,where_,(^.),from,countRows,Value(..))
+
+import Data.Aeson
+import Data.ByteString (ByteString(..))
+import Data.Ratio
+import Text.Blaze.Html
+import Text.Blaze.Html.Renderer.Text
+
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Test0 
     mybool Bool
@@ -30,6 +45,10 @@ Test1
     flag1 Bool Maybe
     dbl Double 
     db2 Double Maybe
+    deriving Show
+    
+Test2
+    dt UTCTime
     deriving Show
     
 Persony
@@ -63,6 +82,61 @@ BlogPost
     title String
     authorId PersonId
     deriving Show
+
+Asm
+  name Text
+  description Text
+  UniqueAsm name
+--  deriving Typeable
+  deriving Show
+  
+Xsd
+  name Text
+  description Text
+  asmid AsmId
+  UniqueXsd name -- global
+--  deriving Typeable
+  deriving Show
+  
+Ftype
+  name Text
+  UniqueFtype name
+--  deriving Typeable
+  deriving Show
+
+Line
+  name Text
+  description Text
+  pos Int
+  ftypeid FtypeEnum
+  xsdid XsdId
+  EinzigName xsdid name  -- within an xsd:so can repeat fieldnames in different xsds
+  EinzigPos xsdid pos   
+--  deriving Typeable
+  deriving Show
+  
+
+Interface
+  name Text
+  fname Text
+  ftypeid FtypeId
+  iname FtypeEnum
+  UniqueInterface name
+--  deriving Typeable
+  deriving Show
+
+Testother json
+  bs1 ByteString Maybe
+  bs2 ByteString 
+  deriving Show
+
+Testrational json
+  rat Rational
+  deriving Show
+
+Testhtml 
+  myhtml Html
+  -- deriving Show
 |]
 
 main :: IO ()
@@ -109,6 +183,8 @@ main = do
     test0 dbtype
     testa 
     if True then testb else return ()
+    test4
+    test5
 
 testa = do
     aaa <- insert $ Test0 False 
@@ -142,6 +218,44 @@ test0 dbtype = do
                 _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
+test5 = do
+    a1 <- insert $ Testother (Just "abc") "zzzz" 
+    a2 <- insert $ Testother Nothing "aaa" 
+    a3 <- insert $ Testother (Just "nnn") "bbb" 
+    a4 <- insert $ Testother (Just "ddd") "mmm" 
+    xs <- selectList [] [Desc TestotherBs1] 
+    liftIO $ putStrLn $ "xs=" ++ show xs
+    ys <- selectList [] [Desc TestotherBs2] 
+    liftIO $ putStrLn $ "ys=" ++ show ys
+    -- insert $ Testrational (4%6)
+
+
+test4 = do
+    a1 <- insert $ Asm "NewAsm1" "description for newasm1" 
+
+    x11 <- insert $ Xsd "NewXsd11" "description for newxsd11" a1
+    l111 <- insert $ Line "NewLine111" "description for newline111" 10 Xsd_string x11
+    l112 <- insert $ Line "NewLine112" "description for newline112" 11 Xsd_boolean x11
+    l113 <- insert $ Line "NewLine113" "description for newline113" 12 Xsd_decimal x11
+    l114 <- insert $ Line "NewLine114" "description for newline114" 15 Xsd_int x11
+
+    x12 <- insert $ Xsd "NewXsd12" "description for newxsd12" a1
+    l121 <- insert $ Line "NewLine121" "description for newline1" 12 Xsd_int x12
+    l122 <- insert $ Line "NewLine122" "description for newline2" 19 Xsd_boolean x12
+
+    a2 <- insert $ Asm "NewAsm2" "description for newasm2" 
+
+    a3 <- insert $ Asm "NewAsm3" "description for newasm3" 
+    x31 <- insert $ Xsd "NewXsd31" "description for newxsd311" a3
+
+    [Value mpos] <- select $ 
+                       from $ \ln -> do
+                          where_ (ln ^. LineXsdid E.==. E.val x11)
+                          return $ E.joinV $ E.max_ (E.just (ln ^. LinePos))
+    liftIO $ putStrLn $ "mpos=" ++ show mpos                          
+    
+
+
     
 test3 = do
     --initialize (undefined :: Personx)

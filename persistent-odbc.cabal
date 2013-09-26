@@ -24,6 +24,7 @@ library
                       , Database.Persist.MigrateMSSQL
                       , Database.Persist.MigrateOracle
                       , TestODBC
+                      , FtypeEnum
 
     ghc-options:   -Wall -O2
 
@@ -44,6 +45,8 @@ library
                 , resourcet
                 , persistent-template
                 , bytestring
+                , esqueleto
+                , blaze-html
 
 source-repository head
   type:     git

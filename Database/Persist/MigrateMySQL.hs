@@ -283,7 +283,7 @@ parseType "date"       = return SqlDay
 parseType "newdate"    = return SqlDay
 parseType "year"       = return SqlDay
 -- Other
-parseType b            = return $ SqlOther $ T.decodeUtf8 b
+parseType b            = error $ "no idea how to handle this type b=" ++ show b -- return $ SqlOther $ T.decodeUtf8 b
 
 
 ----------------------------------------------------------------------
@@ -356,6 +356,8 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
 
 tpcheck SqlDayTime SqlString = True
 tpcheck SqlString SqlDayTime = True
+tpcheck (SqlNumeric _ _) SqlReal = True
+tpcheck SqlReal (SqlNumeric _ _) = True
 tpcheck a b = a==b
 ----------------------------------------------------------------------
 

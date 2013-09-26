@@ -303,7 +303,7 @@ parseType "TIMESTAMP(6)"  = return SqlDayTime
 --parseType "newdate"    = return SqlDay
 --parseType "year"       = return SqlDay
 -- Other
-parseType b            = return $ trace ("OOPS "++show b) $ SqlOther $ T.decodeUtf8 b
+parseType b            = error $ "parseType no idea how to parse this b="++show b -- return $ trace ("OOPS "++show b) $ SqlOther $ T.decodeUtf8 b
 
 
 ----------------------------------------------------------------------
