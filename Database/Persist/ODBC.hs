@@ -39,9 +39,7 @@ import Data.Text (Text)
 import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Data.Int (Int64)
-import Debug.Trace 
 import Data.Conduit
-import GHC.Int (Int32(..),Int64(..))
 
 --import Database.Persist.MigratePostgres
 
@@ -82,6 +80,7 @@ createODBCPool :: MonadIO m
                -> m ConnectionPool
 createODBCPool dbt ci = createSqlPool $ open' dbt ci
 
+-- | List of DBMS that are supported
 data DBType = MySQL | Postgres | MSSQL | Oracle deriving (Show,Read)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
@@ -99,7 +98,7 @@ openSimpleConn :: DBType -> O.Connection -> IO Connection
 openSimpleConn dbtype conn = do
     smap <- newIORef $ Map.empty
     return Connection
-        { connPrepare       = prepare' dbtype conn
+        { connPrepare       = prepare' conn
         , connStmtMap       = smap
         , connInsertSql     = insertSql' dbtype
         , connClose         = O.disconnect conn
@@ -115,8 +114,8 @@ openSimpleConn dbtype conn = do
         , connRDBMS         = "odbc" -- ?
         }
 
-prepare' :: DBType -> O.Connection -> Text -> IO Statement
-prepare' dbtype conn sql = do
+prepare' :: O.Connection -> Text -> IO Statement
+prepare' conn sql = do
 #if DEBUG
     putStrLn $ "Database.Persist.ODBC.prepare': sql = " ++ T.unpack sql
 #endif
@@ -125,25 +124,24 @@ prepare' dbtype conn sql = do
     return Statement
         { stmtFinalize  = O.finish stmt
         , stmtReset     = return () -- rollback conn ?
-        , stmtExecute   = execute' dbtype stmt
-        , stmtQuery     = withStmt' dbtype stmt
+        , stmtExecute   = execute' stmt
+        , stmtQuery     = withStmt' stmt
         }
 
-execute' :: DBType -> O.Statement -> [PersistValue] -> IO Int64
-execute' dbtype query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
+execute' :: O.Statement -> [PersistValue] -> IO Int64
+execute' query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
 
 withStmt' :: MonadResource m
-          => DBType 
-          -> O.Statement
+          => O.Statement
           -> [PersistValue]
           -> Source m [PersistValue]
-withStmt' dbtype stmt vals = do
+withStmt' stmt vals = do
 #if DEBUG
     liftIO $ putStrLn $ "withStmt': vals: " ++ show vals
 #endif
     bracketP openS closeS pull
   where
-    openS       = execute' dbtype stmt vals >> return ()
+    openS       = execute' stmt vals >> return ()
     closeS _    = O.finish stmt
     pull x      = do
         mr <- liftIO $ O.fetchRow stmt

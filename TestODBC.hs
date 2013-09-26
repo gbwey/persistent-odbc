@@ -7,13 +7,12 @@ import Database.Persist
 import Database.Persist.ODBC
 import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (runResourceT)
 import Control.Monad.Logger
 import Database.HDBC 
 import Database.HDBC.ODBC
 import Text.Shakespeare.Text
 import qualified Data.Text.Lazy 
-import Data.Text (Text(..))
+import Data.Text (Text)
 
 import Data.Time (getCurrentTime,UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
@@ -28,13 +27,13 @@ import qualified Database.HDBC.ODBC as H
 
 import FtypeEnum
 import qualified Database.Esqueleto as E
-import Database.Esqueleto (select,where_,(^.),from,countRows,Value(..))
+import Database.Esqueleto (select,where_,(^.),from,Value(..))
 
 import Data.Aeson
-import Data.ByteString (ByteString(..))
+import Data.ByteString (ByteString)
 import Data.Ratio
 import Text.Blaze.Html
-import Text.Blaze.Html.Renderer.Text
+--import Text.Blaze.Html.Renderer.Text
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Test0 
@@ -186,10 +185,12 @@ main = do
     test4
     test5
 
+testa::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 testa = do
     aaa <- insert $ Test0 False 
     liftIO $ putStrLn $ show aaa
         
+testb::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 testb = do    
     a1 <- insert $ Test1 True (Just False) 100.3 Nothing
     liftIO $ putStrLn $ "a1=" ++ show a1
@@ -202,7 +203,7 @@ testb = do
     ret <- selectList ([]::[Filter Test1]) [] 
     liftIO $ putStrLn $ "ret=" ++ show ret
 
-    
+test0::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()    
 test0 dbtype = do
     pid <- insert $ Persony "Dude" Retired
     liftIO $ print pid
@@ -218,6 +219,7 @@ test0 dbtype = do
                 _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
+test5::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test5 = do
     a1 <- insert $ Testother (Just "abc") "zzzz" 
     a2 <- insert $ Testother Nothing "aaa" 
@@ -234,7 +236,7 @@ test5 = do
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
 
-
+test4::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test4 = do
     a1 <- insert $ Asm "NewAsm1" "description for newasm1" 
 
@@ -261,7 +263,7 @@ test4 = do
     
 
 
-    
+test3::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test3 = do
     --initialize (undefined :: Personx)
     pid <- insert $ Personx "Michael" 25 Nothing

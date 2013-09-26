@@ -8,7 +8,6 @@ module Database.Persist.MigrateOracle
      ,escapeDBName
     ) where
 
-import Debug.Trace
 import Control.Arrow
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
@@ -36,7 +35,6 @@ migrateOracle allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
-    liftIO $ putStrLn $ "\n\nidClmn["++show idClmn++"] old[" ++ show old ++ "]\n\n"
     case (idClmn, old, partitionEithers old) of
       -- Nothing found, create everything
       ([], [], _) -> do
@@ -129,8 +127,6 @@ getColumns :: (Text -> IO Statement)
                  )
 getColumns getter def = do
     -- Find out ID column.
-    liftIO $ putStrLn $ "in getcolumns 1"
-    liftIO $ putStrLn $ "in getcolumns vals[" ++ show vals ++ "]"
     stmtIdClmn <- getter "SELECT COLUMN_NAME, \
                                  \cast(NULLABLE as CHAR) as IS_NULLABLE, \
                                  \DATA_TYPE, \
@@ -138,12 +134,8 @@ getColumns getter def = do
                           \FROM user_tab_cols \
                           \WHERE TABLE_NAME   = ? \
                             \AND COLUMN_NAME  = ?"
-    liftIO $ putStrLn $ "in getcolumns 1 1"
     inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
-    liftIO $ putStrLn $ "in getcolumns 1 2"
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
-    liftIO $ putStrLn $ "in getcolumns 1 ids[" ++ show ids ++ "] inter1["++show inter1++"]"
-    liftIO $ putStrLn $ "in getcolumns 2"
 
     -- Find out all columns.
     stmtClmns <- getter "SELECT COLUMN_NAME, \
@@ -155,7 +147,6 @@ getColumns getter def = do
                           \AND COLUMN_NAME <> ?"
     inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
-    liftIO $ putStrLn $ "in getcolumns 3"
 
     -- Find out the constraints.    
 
@@ -170,7 +161,6 @@ getColumns getter def = do
                         \ORDER BY b.CONSTRAINT_NAME, \
                                  \a.COLUMN_NAME"
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
-    liftIO $ putStrLn $ "in getcolumns 4"
 
     -- Return both
     return $ (ids, cs ++ us)
@@ -220,7 +210,7 @@ getColumn getter tname [ PersistByteString cname
       -- Column type
       type_ <- parseType type'
       -- Foreign key (if any)
-      liftIO $ putStrLn $ "in getcolumn"
+
       stmt <- lift $ getter "SELECT \
               \UCC.TABLE_NAME as REFERENCED_TABLE_NAME, \
               \UC.CONSTRAINT_NAME as CONSTRAINT_NAME \
@@ -262,9 +252,7 @@ getColumn _ _ x =
 
 
 -- | Parse the type of column as returned by Oracle's
--- @INFORMATION_SCHEMA@ tables.
--- need to handle anything numeric with non 0 second value as real
--- must be upper case!!!!
+-- schema tables.
 parseType :: Monad m => ByteString -> m SqlType
 parseType "CHAR"    = return SqlBool
 -- Ints
@@ -416,7 +404,7 @@ showSqlType (SqlNumeric s prec) _ = "NUMBER(" ++ show s ++ "," ++ show prec ++ "
 showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
-showSqlType (SqlOther t) _        = trace ("oops in showSqlType " ++ show t) $ T.unpack t
+showSqlType (SqlOther t) _        = error ("oops in showSqlType " ++ show t)  -- $ T.unpack t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)

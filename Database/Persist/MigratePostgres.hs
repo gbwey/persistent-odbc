@@ -27,7 +27,6 @@ import qualified Data.Conduit.List as CL
 import Data.Maybe (mapMaybe)
 
 import qualified Data.Text.Encoding as TE
-import Debug.Trace
 
 migratePostgres :: [EntityDef a]
          -> (Text -> IO Statement)
@@ -183,7 +182,6 @@ getColumn :: (Text -> IO Statement)
           -> DBName -> [PersistValue]
           -> IO (Either Text Column)
 getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteString z, d, npre, nscl] = do
-    putStrLn $ "in getColumn tname[" ++ show tname ++ "] x[" ++ show x ++ "] y[" ++ show y ++ "] z[" ++ show z ++ "] npre[" ++ show npre ++ "] nscl[" ++ show nscl ++ "]" 
     case d' of
         Left s -> return $ Left s
         Right d'' ->

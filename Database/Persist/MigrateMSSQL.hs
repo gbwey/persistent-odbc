@@ -8,7 +8,6 @@ module Database.Persist.MigrateMSSQL
      ,escapeDBName
     ) where
 
-import Debug.Trace
 import Control.Arrow
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
