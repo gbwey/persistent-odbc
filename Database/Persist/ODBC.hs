@@ -111,7 +111,7 @@ openSimpleConn dbtype conn = do
         , connRollback      = const $ O.rollback conn
         , connEscapeName    = escape dbtype
         , connNoLimit       = "" -- "LIMIT ALL"
-        , connRDBMS         = "odbc" -- ?
+        , connRDBMS         = T.pack $ show dbtype 
         }
 
 prepare' :: O.Connection -> Text -> IO Statement

@@ -3,7 +3,7 @@ persistent-odbc
 Using [Persistent package](http://hackage.haskell.org/package/persistent) with ODBC-databases 
 throw [HDBC-odbc](http://hackage.haskell.org/package/hdbc-odbc).
 
-Thanks to olshanskydr at https://github.com/odr/persistent-odbc/
+Thanks to Dmitry Olshansky at https://github.com/odr/persistent-odbc/
 for doing the initial hookup to hdbc-odbc.
 
 Supports Postgres, MySql, MS Sql Server and Oracle.

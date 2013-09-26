@@ -233,6 +233,8 @@ test5 = do
     r2 <- insert $ Testrational (13 % 14)
     liftIO $ putStrLn $ "r1=" ++ show r1
     liftIO $ putStrLn $ "r2=" ++ show r2
+    zs <- selectList [] [Desc TestrationalRat] 
+    liftIO $ putStrLn $ "zs=" ++ show zs
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
 
@@ -319,5 +321,3 @@ test3 = do
     delete pid
     plast <- get pid
     liftIO $ print plast
-
-    

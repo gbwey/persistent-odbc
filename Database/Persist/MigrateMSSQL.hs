@@ -259,11 +259,11 @@ parseType "longlong"   = return SqlInt64
 parseType "mediumint"  = return SqlInt32
 parseType "bigint"     = return SqlInt64
 -- Double
-parseType "real"      = return SqlReal
+parseType "real"       = return SqlReal
 parseType "float"      = return SqlReal
 parseType "double"     = return SqlReal
 parseType "decimal"    = return SqlReal
-parseType "newdecimal" = return SqlReal
+parseType "numeric"    = return SqlReal
 -- Text
 parseType "varchar"    = return SqlString
 parseType "varstring"  = return SqlString
@@ -274,10 +274,7 @@ parseType "mediumtext" = return SqlString
 parseType "longtext"   = return SqlString
 -- ByteString
 parseType "varbinary"  = return SqlBlob
-parseType "blob"       = return SqlBlob
-parseType "tinyblob"   = return SqlBlob
-parseType "mediumblob" = return SqlBlob
-parseType "longblob"   = return SqlBlob
+parseType "image"   = return SqlBlob
 -- Time-related
 parseType "time"       = return SqlTime
 parseType "datetime"   = return SqlDayTime
@@ -384,7 +381,7 @@ showColumn (Column n nu t def maxLen ref) = concat
 showSqlType :: SqlType
             -> Maybe Integer -- ^ @maxlen@
             -> String
-showSqlType SqlBlob    Nothing    = "BLOB"
+showSqlType SqlBlob    Nothing    = "VARBINARY(MAX)"
 showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
 showSqlType SqlBool    _          = "TINYINT"
 showSqlType SqlDay     _          = "DATE"
@@ -397,7 +394,7 @@ showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show s ++ "," ++ show prec ++ 
 showSqlType SqlString  Nothing    = "VARCHAR(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
-showSqlType (SqlOther t) _        = T.unpack t
+showSqlType (SqlOther t) _        = error ("showSqlType unhandled type t="++show t)   -- T.unpack t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -440,9 +437,7 @@ showAlter table (oldName, Change (Column n nu t def maxLen _ref)) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " CHANGE "
-    , escapeDBName oldName
-    , " "
+    , " ALTER COLUMN "
     , showColumn (Column n nu t def maxLen Nothing)
     ]
 showAlter table (_, Add' col) =
