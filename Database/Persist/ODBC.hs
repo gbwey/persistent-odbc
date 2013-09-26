@@ -21,6 +21,7 @@ import Database.Persist.Sql
 import qualified Database.Persist.MigratePostgres as PG
 import qualified Database.Persist.MigrateMySQL as MYSQL
 import qualified Database.Persist.MigrateMSSQL as MSSQL
+import qualified Database.Persist.MigrateOracle as ORACLE
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -80,7 +81,7 @@ createODBCPool :: MonadIO m
                -> m ConnectionPool
 createODBCPool dbt ci = createSqlPool $ open' dbt ci
 
-data DBType = MySQL | Postgres | MSSQL deriving (Show,Read)
+data DBType = MySQL | Postgres | MSSQL | Oracle deriving (Show,Read)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
@@ -256,6 +257,7 @@ migrate' dbt allDefs getter val =
     Just Postgres -> PG.migratePostgres allDefs getter val
     Just MySQL -> MYSQL.migrateMySQL allDefs getter val
     Just MSSQL -> MSSQL.migrateMSSQL allDefs getter val
+    Just Oracle -> ORACLE.migrateOracle allDefs getter val
                                     _ -> error $ "no handler for " ++ show dbt
 
 -- need different escape strategies for each type
@@ -268,6 +270,7 @@ insertSql' dbtype t cols id' =
     Just Postgres -> PG.insertSqlPostgres t cols id'
     Just MySQL -> MYSQL.insertSqlMySQL t cols id'
     Just MSSQL -> MSSQL.insertSqlMSSQL t cols id'
+    Just Oracle -> ORACLE.insertSqlOracle t cols id'
     _ -> error $ "no handler for " ++ show dbtype
 
 escape :: Maybe DBType -> DBName -> Text
@@ -276,5 +279,6 @@ escape dbtype dbname =
     Just Postgres -> PG.escape dbname
     Just MySQL -> T.pack $ MYSQL.escapeDBName dbname
     Just MSSQL -> T.pack $ MSSQL.escapeDBName dbname
+    Just Oracle -> T.pack $ ORACLE.escapeDBName dbname
     _ -> error $ "no escape handler for " ++ show dbtype
 

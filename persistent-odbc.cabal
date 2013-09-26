@@ -22,6 +22,7 @@ library
                       , Database.Persist.MigratePostgres
                       , Database.Persist.MigrateMySQL
                       , Database.Persist.MigrateMSSQL
+                      , Database.Persist.MigrateOracle
                       , TestODBC
 
     ghc-options:   -Wall -O2
