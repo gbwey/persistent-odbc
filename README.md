@@ -3,10 +3,13 @@ persistent-odbc
 Using [Persistent package](http://hackage.haskell.org/package/persistent) with ODBC-databases 
 throw [HDBC-odbc](http://hackage.haskell.org/package/hdbc-odbc).
 
-Functionality is very bounded because there are no schema modification possibilities in general. 
+Thanks to olshanskydr at https://github.com/odr/persistent-odbc/
+for doing the initial hookup to hdbc-odbc.
 
-Beside that, `Persistent` has some assumptions about table structures which is not always possible to provide in all databases.
-E.g. `hdbc-odbc` transform Oracle's `NUMBER` into `SqlString` value, 
-but `Persistent` want to have `PersistInt64` value for keys. I don't see a way to provide that.
+Supports Postgres, MySql, MS Sql Server and Oracle.
 
-Anyway, with this package we can do at least low-level queries from `Persistent` to any databases.
+Limit and Offset are not yet supported in MS Sql Server and Oracle.
+
+This requires the modified version of Persistent in this repository to work.
+
+
