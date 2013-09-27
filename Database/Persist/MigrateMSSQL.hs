@@ -122,7 +122,6 @@ getColumns :: (Text -> IO Statement)
                  )
 getColumns getter def = do
     -- Find out ID column.
-    -- gb removed \WHERE TABLE_SCHEMA = ? \
     stmtIdClmn <- getter "SELECT COLUMN_NAME, \
                                  \IS_NULLABLE, \
                                  \DATA_TYPE, \
@@ -146,13 +145,12 @@ getColumns getter def = do
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.
-    -- gb removed \WHERE TABLE_SCHEMA = ? \
-    -- gb removed \AND REFERENCED_TABLE_SCHEMA IS NULL \
     stmtCntrs <- getter "SELECT CONSTRAINT_NAME, \
                                \COLUMN_NAME \
-                        \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
+                        \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE p \
                         \WHERE TABLE_NAME   = ? \
                           \AND COLUMN_NAME <> ? \
+                          \AND not exists (select 1 from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC where rc.CONSTRAINT_NAME=p.CONSTRAINT_NAME) \
                         \ORDER BY CONSTRAINT_NAME, \
                                  \COLUMN_NAME"
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
@@ -206,8 +204,6 @@ getColumn getter tname [ PersistByteString cname
       type_ <- parseType type'
 
       -- Foreign key (if any)
-      -- gb removed \WHERE TABLE_SCHEMA = ? \
-      -- gb removed \AND REFERENCED_TABLE_SCHEMA = ? \
       stmt <- lift $ getter "SELECT KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME, \
       \KCU1.CONSTRAINT_NAME AS CONSTRAINT_NAME \
   \FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC \
@@ -345,7 +341,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
                             (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
                             _ -> []
                 -- Type and nullability
-                modType | type_ == type_' && isNull == isNull' = []
+                modType | tpcheck type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
@@ -355,6 +351,9 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
+tpcheck (SqlNumeric _ _) SqlReal = True
+tpcheck SqlReal (SqlNumeric _ _) = True
+tpcheck a b = a==b
 
 ----------------------------------------------------------------------
 

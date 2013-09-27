@@ -156,7 +156,7 @@ getColumns getter def = do
      \WHERE a.table_name = ? \
      \and a.table_name=b.table_name \
      \and a.constraint_name=b.constraint_name \
-     \and b.constraint_type not in ('R','C') \
+     \and b.constraint_type in ('U','P') \
                           \AND a.COLUMN_NAME <> ? \
                         \ORDER BY b.CONSTRAINT_NAME, \
                                  \a.COLUMN_NAME"
@@ -277,8 +277,7 @@ parseType "TEXT"       = return SqlString
 --parseType "mediumtext" = return SqlString
 parseType "LONG"   = return SqlString
 -- ByteString
-parseType "VARBINARY"  = return SqlBlob
---parseType "blob"       = return SqlBlob
+parseType "BLOB"       = return SqlBlob
 --parseType "tinyblob"   = return SqlBlob
 --parseType "mediumblob" = return SqlBlob
 --parseType "longblob"   = return SqlBlob
@@ -291,7 +290,7 @@ parseType "TIMESTAMP(6)"  = return SqlDayTime
 --parseType "newdate"    = return SqlDay
 --parseType "year"       = return SqlDay
 -- Other
-parseType b            = error $ "parseType no idea how to parse this b="++show b -- return $ trace ("OOPS "++show b) $ SqlOther $ T.decodeUtf8 b
+parseType b            = error $ "oracle: parseType no idea how to parse this b="++show b -- return $ trace ("OOPS "++show b) $ SqlOther $ T.decodeUtf8 b
 
 
 ----------------------------------------------------------------------
@@ -352,7 +351,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
                             (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
                             _ -> []
                 -- Type and nullability
-                modType | tp type_ type_' && isNull == isNull' = []
+                modType | tpcheck type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
@@ -362,9 +361,11 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
-tp SqlInt32 SqlInt64 = True
-tp SqlInt64 SqlInt32 = True
-tp a b = a==b
+tpcheck SqlInt32 SqlInt64 = True
+tpcheck SqlInt64 SqlInt32 = True
+tpcheck (SqlNumeric _ _) SqlInt32 = True -- else will try to migrate rational columns
+tpcheck SqlInt32 (SqlNumeric _ _) = True
+tpcheck a b = a==b
 
 ----------------------------------------------------------------------
 
@@ -392,7 +393,7 @@ showSqlType :: SqlType
             -> Maybe Integer -- ^ @maxlen@
             -> String
 showSqlType SqlBlob    Nothing    = "BLOB"
-showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
+showSqlType SqlBlob    (Just i)   = "BLOB(" ++ show i ++ ")"
 showSqlType SqlBool    _          = "CHAR"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "TIMESTAMP(6)"
