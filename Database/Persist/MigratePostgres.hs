@@ -7,6 +7,7 @@
 -- | An ODBC backend for persistent.
 module Database.Persist.MigratePostgres
     ( getMigrationStrategy 
+    , getMigrationStrategy1
     ) where
 
 import Database.Persist.Sql
@@ -26,6 +27,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
+import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Postgres {} = 
@@ -37,6 +39,16 @@ getMigrationStrategy dbtype@Postgres {} =
                            ,dbmsType=dbtype
                           } 
 getMigrationStrategy dbtype = error $ "Postgres: calling with invalid dbtype " ++ show dbtype
+
+getMigrationStrategy1 :: MySQLT -> MigrationStrategy
+getMigrationStrategy1 tp = trace ("tp=" ++ show tp) $ 
+     MigrationStrategy
+                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT ALL" 
+                           ,dbmsMigrate=migrate'
+                           ,dbmsInsertSql=insertSql'
+                           ,dbmsEscape=escape
+                           ,dbmsType=MySQL
+                          }
                      
 migrate' :: [EntityDef a]
          -> (Text -> IO Statement)

@@ -4,8 +4,8 @@ synopsis:           Backend for the persistent library using ODBC
 description:        Based on HDBC-ODBC. Functionality for modifying db-schema is not supported. Such functionality should be supported in additional packages specified for database like persistent-odbc-oracle, persistent-odbc-msql and so on.
 license:            MIT
 license-file:       LICENSE
-author:             Dmitry Olshansky
-maintainer:         OlshanskyDR@gmail.com
+author:             Grant Weyburne
+maintainer:         gbwey9@gmail.com
 category:           Database, Yesod
 cabal-version:      >= 1.8
 build-type:         Simple
@@ -14,6 +14,10 @@ stability:          Experimental
 Flag debug
         Default: False
 
+Flag test
+  Description: test.
+  Default: False
+  
 library
     if flag(debug)
         cpp-options: -DDEBUG
@@ -24,8 +28,10 @@ library
                       , Database.Persist.MigrateMySQL
                       , Database.Persist.MigrateMSSQL
                       , Database.Persist.MigrateOracle
-                      , TestODBC
-                      , FtypeEnum
+    if flag(test)
+                    exposed-modules:
+                          TestODBC
+                        , FtypeEnum
 
     ghc-options:   -Wall -O2
 
@@ -39,17 +45,49 @@ library
                 , convertible   >= 1.0
                 , HDBC          >= 2.2
                 , HDBC-odbc     >= 2.2 
---     && < 2.3
                 , persistent    >= 1.2
-                , shakespeare-text 
                 , monad-logger
                 , resourcet
                 , persistent-template
                 , bytestring
+    if flag(test)
+               build-depends: 
+                    esqueleto 
+                   ,blaze-html
+    
+    
+test-suite test
+  type: exitcode-stdio-1.0
+  ghc-options:    -Wall
+  hs-source-dirs: .
+  main-is:        TestODBC.hs
+  build-depends: base         
+                , text          
+                , aeson         
+                , time          
+                , conduit       
+                , containers    
+                , transformers  
+                , convertible   
+                , HDBC          
+                , HDBC-odbc     
+                , persistent    
+                -- , monad-logger
+                , resourcet
+                , persistent-template
+                , bytestring
+
+      -- Test-only dependencies
                 , esqueleto
                 , blaze-html
-
+    , containers
+    , HUnit
+    , QuickCheck
+    , hspec               >= 1.3 && < 1.8
+    , monad-control
+    , monad-logger        >= 0.3
+    
 source-repository head
   type:     git
-  location: git://github.com/odr/persistent-odbc.git
+  location: git://github.com/gbwey/persistent-odbc.git
 

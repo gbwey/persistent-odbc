@@ -371,6 +371,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
+tpcheck :: SqlType -> SqlType -> Bool
 tpcheck SqlInt32 SqlInt64 = True
 tpcheck SqlInt64 SqlInt32 = True
 tpcheck (SqlNumeric _ _) SqlInt32 = True -- else will try to migrate rational columns

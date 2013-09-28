@@ -546,10 +546,12 @@ limitOffset mssql2012 (limit,offset) hasOrder sql
    | limit==0 && offset==0 = sql
    | mssql2012 && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
    | mssql2012 && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
-   | not mssql2012 && (not (T.null sql)) && offset==0 && "select " `T.isPrefixOf` T.toLower (T.take 7 sql) = 
-                   let (a,b) = T.splitAt 7 sql 
-                       ret=a <> T.pack "top " <> T.pack (show limit) <> " " <> b
-                   in trace ("ret="++show ret) ret
+   | not mssql2012 && offset==0 = case "select " `T.isPrefixOf` T.toLower (T.take 7 sql) of
+                                    True -> let (a,b) = T.splitAt 7 sql 
+                                                ret=a <> T.pack "top " <> T.pack (show limit) <> " " <> b
+                                            in trace ("ret="++show ret) ret
+                                    False -> if T.null sql then error "MSSQL: not 2012 so trying to add 'top n' but the sql is empty"
+                                              else error $ "MSSQL: not 2012 so trying to add 'top n' but is not a select sql=" ++ T.unpack sql
    | mssql2012 = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql
    | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql
 {-
