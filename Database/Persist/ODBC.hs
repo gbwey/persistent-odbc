@@ -108,8 +108,8 @@ openSimpleConn dbtype conn = do
         , connCommit        = const $ O.commit   conn
         , connRollback      = const $ O.rollback conn
         , connEscapeName    = escape dbtype
+        , connNoLimit       = "" -- esqueleto uses this but needs to use connLimitOffset then we can dump this field
         , connRDBMS         = T.pack $ show dbtype 
-        , connNoLimit       = "" -- esqueleto uses this but should use connLimitOffset [[move dbtype to persistent proper]]
         , connLimitOffset = limitOffset dbtype 
         }
 

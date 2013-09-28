@@ -204,7 +204,8 @@ testbase dbtype = do
       MSSQL {} -> liftIO $ putStrLn "\n*** skipping test5 for mssql until blobs are fixed\n"
       _ -> test5 dbtype
     test6
-    test7 dbtype 
+    when (limitoffset dbtype) test7
+    when (limitoffset dbtype) test8
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -357,16 +358,29 @@ test6  = do
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
     
-test7::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
-test7 dbtype = do
-    let ok=case dbtype of 
-            Oracle False -> False
-            MSSQL False -> False
-            _ -> True
-    when ok $ do
-      xs <- selectList [] [Desc LinePos, LimitTo 2, OffsetBy 3] 
-      liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=3 xs=" ++ show xs
-      xs <- selectList [] [Desc LinePos, LimitTo 2] 
-      liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2 xs=" ++ show xs
-      xs <- selectList [] [Desc LinePos, OffsetBy 3] 
-      liftIO $ putStrLn $ show (length xs) ++ " rows: offset=3 xs=" ++ show xs
+test7::SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test7 = do
+    xs <- selectList [] [Desc LinePos, LimitTo 2, OffsetBy 3] 
+    liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=3 xs=" ++ show xs
+    xs <- selectList [] [Desc LinePos, LimitTo 2] 
+    liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2 xs=" ++ show xs
+    xs <- selectList [] [Desc LinePos, OffsetBy 3] 
+    liftIO $ putStrLn $ show (length xs) ++ " rows: offset=3 xs=" ++ show xs
+
+test8::SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test8 = do
+    xs <- select $ 
+             from $ \ln -> do
+                where_ (ln ^. LinePos E.>=. E.val 0)
+                E.orderBy [E.asc (ln ^. LinePos)]
+                E.limit 2
+                E.offset 3
+                return ln
+    liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2 offset=3 xs=" ++ show xs
+
+limitoffset :: DBType -> Bool
+limitoffset dbtype = 
+  case dbtype of 
+    Oracle False -> False
+    MSSQL False -> False
+    _ -> True
