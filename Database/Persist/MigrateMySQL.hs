@@ -4,7 +4,6 @@
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MigrateMySQL
     ( getMigrationStrategy 
-    , getMigrationStrategy1
     ) where
 
 import Control.Arrow
@@ -37,15 +36,6 @@ getMigrationStrategy dbtype@MySQL {} =
                           }
 getMigrationStrategy dbtype = error $ "MySQL: calling with invalid dbtype " ++ show dbtype
 
-getMigrationStrategy1 :: MySQLT -> MigrationStrategy
-getMigrationStrategy1 tp = trace ("tp=" ++ show tp) $ 
-     MigrationStrategy
-                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT 18446744073709551615" 
-                           ,dbmsMigrate=migrate'
-                           ,dbmsInsertSql=insertSql'
-                           ,dbmsEscape=T.pack . escapeDBName 
-                           ,dbmsType=MySQL
-                          }
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
 migrate' :: Show a

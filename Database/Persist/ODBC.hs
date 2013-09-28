@@ -248,20 +248,3 @@ charChk :: Char -> PersistValue
 charChk '\0' = PersistBool True
 charChk '\1' = PersistBool False
 charChk c = PersistText $ T.singleton c
-
-instance AA MySQLT where
-  getmigstrat _ = MYSQL.getMigrationStrategy1 dbt
-  dbt = MySQLV
-
-instance AA PostgresT where
-  getmigstrat _ = PG.getMigrationStrategy1 dbt
-  dbt = PostgresV
-{-
-instance AA MSSQLT where
-  getmigstrat _ = MSSQL.getMigrationStrategy1 
-  dbt = MySQLV
-
-instance AA OracleT where
-  getmigstrat _ = ORACLE.getMigrationStrategy1 
-  dbt = MySQLV
--}
