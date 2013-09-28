@@ -147,7 +147,8 @@ main = do
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
            "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True")
-           "o" -> (Oracle False,"dsn=oracle_testdb; Uid=system; Pwd=?;")
+           "so" -> (MSSQL False,"dsn=mssql_testdb; Trusted_Connection=True")
+           "o" -> (Oracle False,"dsn=oracle_testdb") -- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>\Password
            xs -> error $ "unknown option:choose p m s o found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
@@ -206,6 +207,9 @@ testbase dbtype = do
     test6
     when (limitoffset dbtype) test7
     when (limitoffset dbtype) test8
+    case dbtype of
+      Oracle {} -> return ()
+      _ -> test9
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -378,9 +382,18 @@ test8 = do
                 return ln
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2 offset=3 xs=" ++ show xs
 
+test9::SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test9 = do
+    xs <- selectList [] [Desc LinePos, LimitTo 2] 
+    liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=0 xs=" ++ show xs
+    xs <- selectList [] [Desc LinePos, LimitTo 4] 
+    liftIO $ putStrLn $ show (length xs) ++ " rows: limit=4,offset=0 xs=" ++ show xs
+
 limitoffset :: DBType -> Bool
 limitoffset dbtype = 
   case dbtype of 
     Oracle False -> False
     MSSQL False -> False
     _ -> True
+    
+    

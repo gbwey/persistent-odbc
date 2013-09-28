@@ -564,4 +564,4 @@ limitOffset oracle12c (limit,offset) hasOrder sql
    | limit==0 && offset==0 = sql
    | oracle12c && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
    | oracle12c && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
-   | otherwise = error "Oracle does not support limit and offset until Oracle 12c"
+   | otherwise = error $ "Oracle does not support limit and offset until Oracle 12c sql=" ++ T.unpack sql
