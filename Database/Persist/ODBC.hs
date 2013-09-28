@@ -40,7 +40,7 @@ import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Data.Int (Int64)
 import Data.Conduit
-import Debug.Trace
+import Database.Persist.ODBCTypes
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -61,7 +61,7 @@ withODBCPool :: MonadIO m
              -- ^ Action to be executed that uses the
              -- connection pool.
              -> m a
-withODBCPool dbt ci = withSqlPool $ open' dbt ci
+withODBCPool dbt ci = withSqlPool $ open' (getMigrationStrategy dbt) ci
 
 
 -- | Create an ODBC connection pool.  Note that it's your
@@ -76,50 +76,47 @@ createODBCPool :: MonadIO m
                -- ^ Number of connections to be kept open
                -- in the pool.
                -> m ConnectionPool
-createODBCPool dbt ci = createSqlPool $ open' dbt ci
-
--- | List of DBMS that are supported
-data DBType = MySQL | Postgres | MSSQL { mssql2012::Bool} | Oracle { oracle12c::Bool } deriving (Show,Read)
+createODBCPool dbt ci = createSqlPool $ open' (getMigrationStrategy dbt) ci
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withODBCConn :: (MonadIO m, MonadBaseControl IO m)
              => DBType -> ConnectionString -> (Connection -> m a) -> m a
-withODBCConn dbt cs ma = withSqlConn (open' dbt cs) ma
+withODBCConn dbt cs ma = withSqlConn (open' (getMigrationStrategy dbt) cs) ma
 
-open' :: DBType -> ConnectionString -> IO Connection
-open' dbt cstr = do
-    O.connectODBC cstr >>= openSimpleConn dbt
+open' :: MigrationStrategy -> ConnectionString -> IO Connection
+open' mig cstr = do
+    O.connectODBC cstr >>= openSimpleConn mig
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
-openSimpleConn :: DBType -> O.Connection -> IO Connection
-openSimpleConn dbtype conn = do
+openSimpleConn :: MigrationStrategy -> O.Connection -> IO Connection
+openSimpleConn mig conn = do
     smap <- newIORef $ Map.empty
     return Connection
         { connPrepare       = prepare' conn
         , connStmtMap       = smap
-        , connInsertSql     = insertSql' dbtype
+        , connInsertSql     = dbmsInsertSql mig
         , connClose         = O.disconnect conn
-        , connMigrateSql    = migrate' dbtype
+        , connMigrateSql    = dbmsMigrate mig
         , connBegin         = const 
                      $ E.catch (O.commit conn) (\(_ :: E.SomeException) -> return ())  
             -- there is no nested transactions.
             -- Transaction begining means that previous commited
         , connCommit        = const $ O.commit   conn
         , connRollback      = const $ O.rollback conn
-        , connEscapeName    = escape dbtype
+        , connEscapeName    = dbmsEscape mig
         , connNoLimit       = "" -- esqueleto uses this but needs to use connLimitOffset then we can dump this field
-        , connRDBMS         = T.pack $ show dbtype 
-        , connLimitOffset = limitOffset dbtype 
+        , connRDBMS         = T.pack $ show (dbmsType mig)
+        , connLimitOffset   = dbmsLimitOffset mig
         }
 
-limitOffset::DBType -> (Int,Int) -> Bool -> Text -> Text 
-limitOffset dbtype (limit,offset) hasorder sql = trace ("dbtype=" ++ show dbtype ++ " limitoffset=" ++ show (limit,offset) ++ " hasorder=" ++ show hasorder ++ " sql=" ++ show sql) $
+getMigrationStrategy::DBType -> MigrationStrategy
+getMigrationStrategy dbtype = 
   case dbtype of
-    Postgres -> decorateSQLWithLimitOffset "LIMIT ALL" (limit,offset) hasorder sql 
-    MySQL -> decorateSQLWithLimitOffset "LIMIT 18446744073709551615" (limit,offset) hasorder sql 
-    MSSQL { mssql2012=flag } -> MSSQL.limitOffset flag (limit,offset) hasorder sql 
-    Oracle { oracle12c=flag } -> ORACLE.limitOffset flag (limit,offset) hasorder sql 
+    Postgres -> PG.getMigrationStrategy dbtype
+    MySQL -> MYSQL.getMigrationStrategy dbtype
+    MSSQL { mssql2012=flag } -> MSSQL.getMigrationStrategy dbtype
+    Oracle { oracle12c=flag } -> ORACLE.getMigrationStrategy dbtype
 
 
 prepare' :: O.Connection -> Text -> IO Statement
@@ -163,15 +160,7 @@ withStmt' stmt vals = do
                     pull x
               )
               mr
-{-
-escapeALT :: DBName -> Text
-escapeALT (DBName s) =
-    T.pack $ {- '"' : -} go (T.unpack s) {- ++ "\""-}
-  where
-    go "" = ""
-    go ('"':xs) = "\"\"" ++ go xs
-    go (x:xs) = x : go xs
--}
+
 -- | Information required to connect to a PostgreSQL database
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withODBCPool'.
@@ -259,40 +248,4 @@ charChk :: Char -> PersistValue
 charChk '\0' = PersistBool True
 charChk '\1' = PersistBool False
 charChk c = PersistText $ T.singleton c
-
-
-migrate' :: Show a => DBType 
-         -> [EntityDef a]
-         -> (Text -> IO Statement)
-         => EntityDef SqlType
-         -> IO (Either [Text] [(Bool, Text)])
-migrate' dbt allDefs getter val = 
-  case dbt of
-    Postgres -> PG.migratePostgres allDefs getter val
-    MySQL -> MYSQL.migrateMySQL allDefs getter val
-    MSSQL {} -> MSSQL.migrateMSSQL allDefs getter val
-    Oracle {} -> ORACLE.migrateOracle allDefs getter val
-    -- _ -> error $ "no handler for " ++ show dbt
-
--- need different escape strategies for each type
--- need different ways to get the id back:returning works for postgres
--- SELECT LAST_INSERT_ID(); for mysql
-
-insertSql' :: DBType -> DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSql' dbtype t cols id' = 
-  case dbtype of
-    Postgres -> PG.insertSqlPostgres t cols id'
-    MySQL -> MYSQL.insertSqlMySQL t cols id'
-    MSSQL {} -> MSSQL.insertSqlMSSQL t cols id'
-    Oracle {} -> ORACLE.insertSqlOracle t cols id'
---    _ -> error $ "no handler for " ++ show dbtype
-
-escape :: DBType -> DBName -> Text
-escape dbtype dbname = 
-  case dbtype of
-    Postgres -> PG.escape dbname
-    MySQL -> T.pack $ MYSQL.escapeDBName dbname
-    MSSQL {} -> T.pack $ MSSQL.escapeDBName dbname
-    Oracle {} -> T.pack $ ORACLE.escapeDBName dbname
-    -- _ -> error $ "no escape handler for " ++ show dbtype
 

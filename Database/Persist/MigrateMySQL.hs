@@ -3,9 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- | A MySQL backend for @persistent@.
 module Database.Persist.MigrateMySQL
-    ( migrateMySQL
-     ,insertSqlMySQL
-     ,escapeDBName
+    ( getMigrationStrategy 
     ) where
 
 import Control.Arrow
@@ -24,14 +22,26 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
+import Database.Persist.ODBCTypes
+
+getMigrationStrategy :: DBType -> MigrationStrategy
+getMigrationStrategy dbtype@MySQL {} = 
+     MigrationStrategy
+                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT 18446744073709551615" 
+                           ,dbmsMigrate=migrate'
+                           ,dbmsInsertSql=insertSql'
+                           ,dbmsEscape=T.pack . escapeDBName 
+                           ,dbmsType=dbtype
+                          }
+getMigrationStrategy dbtype = error $ "MySQL: calling with invalid dbtype " ++ show dbtype
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrateMySQL :: Show a
+migrate' :: Show a
          => [EntityDef a]
          -> (Text -> IO Statement)
          -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
-migrateMySQL allDefs getter val = do
+migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
@@ -354,6 +364,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
+tpcheck :: SqlType -> SqlType -> Bool
 tpcheck SqlDayTime SqlString = True
 tpcheck SqlString SqlDayTime = True
 tpcheck (SqlNumeric _ _) SqlReal = True
@@ -524,8 +535,8 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "`"
 -- | SQL code to be executed when inserting an entity.
-insertSqlMySQL :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSqlMySQL t cols _ = ISRInsertGet doInsert "SELECT LAST_INSERT_ID()"
+insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' t cols _ = ISRInsertGet doInsert "SELECT LAST_INSERT_ID()"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "

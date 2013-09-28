@@ -19,6 +19,7 @@ library
         cpp-options: -DDEBUG
 
     exposed-modules:    Database.Persist.ODBC
+                      , Database.Persist.ODBCTypes
                       , Database.Persist.MigratePostgres
                       , Database.Persist.MigrateMySQL
                       , Database.Persist.MigrateMSSQL

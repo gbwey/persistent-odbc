@@ -6,13 +6,10 @@
 {-# LANGUAGE MultiParamTypeClasses, ScopedTypeVariables #-}
 -- | An ODBC backend for persistent.
 module Database.Persist.MigratePostgres
-    ( migratePostgres
-     ,insertSqlPostgres 
-     ,escape
+    ( getMigrationStrategy 
     ) where
 
 import Database.Persist.Sql
-
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.List (intercalate)
 import qualified Data.Text as T
@@ -28,11 +25,24 @@ import Data.Maybe (mapMaybe)
 
 import qualified Data.Text.Encoding as TE
 
-migratePostgres :: [EntityDef a]
+import Database.Persist.ODBCTypes
+
+getMigrationStrategy :: DBType -> MigrationStrategy
+getMigrationStrategy dbtype@Postgres {} = 
+     MigrationStrategy
+                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT ALL" 
+                           ,dbmsMigrate=migrate' 
+                           ,dbmsInsertSql=insertSql' 
+                           ,dbmsEscape=escape 
+                           ,dbmsType=dbtype
+                          } 
+getMigrationStrategy dbtype = error $ "Postgres: calling with invalid dbtype " ++ show dbtype
+                     
+migrate' :: [EntityDef a]
          -> (Text -> IO Statement)
          => EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
-migratePostgres allDefs getter val = fmap (fmap $ map showAlterDb) $ do
+migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
     let name = entityDB val
     old <- getColumns getter val
     case partitionEithers old of
@@ -83,7 +93,7 @@ getColumns :: (Text -> IO Statement)
            -> EntityDef a
            -> IO [Either Text (Either Column (DBName, [DBName]))]
 getColumns getter def = do
-    let sql=concat ["SELECT "
+    let sqlv=concat ["SELECT "
                           ,"column_name "
                           ,",is_nullable "
                           ,",udt_name "
@@ -95,13 +105,13 @@ getColumns getter def = do
                           ,"AND table_name=? "
                           ,"AND column_name <> ?"]
   
-    stmt <- getter $ pack sql
+    stmt <- getter $ pack sqlv
     let vals =
             [ PersistText $ unDBName $ entityDB def
             , PersistText $ unDBName $ entityID def
             ]
     cs <- runResourceT $ stmtQuery stmt vals $$ helper
-    let sql=concat ["SELECT "
+    let sqlc=concat ["SELECT "
                           ,"constraint_name "
                           ,",column_name "
                           ,"FROM information_schema.constraint_column_usage "
@@ -110,7 +120,7 @@ getColumns getter def = do
                           ,"AND column_name <> ? "
                           ,"ORDER BY constraint_name, column_name"]
 
-    stmt' <- getter $ pack sql
+    stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
     return $ cs ++ us
@@ -429,8 +439,8 @@ refName (DBName table) (DBName column) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSqlPostgres :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSqlPostgres t cols id' = ISRSingle $ pack $ concat
+insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' t cols id' = ISRSingle $ pack $ concat
     [ "INSERT INTO "
     , T.unpack $ escape t
     , "("

@@ -3,10 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- | A Oracle backend for @persistent@.
 module Database.Persist.MigrateOracle
-    ( migrateOracle
-     ,insertSqlOracle
-     ,escapeDBName
-     ,limitOffset
+    ( getMigrationStrategy 
     ) where
 
 import Control.Arrow
@@ -25,14 +22,26 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
+import Database.Persist.ODBCTypes
+
+getMigrationStrategy :: DBType -> MigrationStrategy
+getMigrationStrategy dbtype@Oracle { oracle12c=ok} = 
+     MigrationStrategy
+                          { dbmsLimitOffset=limitOffset ok
+                           ,dbmsMigrate=migrate'
+                           ,dbmsInsertSql=insertSql'
+                           ,dbmsEscape=T.pack . escapeDBName 
+                           ,dbmsType=dbtype
+                          }
+getMigrationStrategy dbtype = error $ "Oracle: calling with invalid dbtype " ++ show dbtype
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrateOracle :: Show a
+migrate' :: Show a
          => [EntityDef a]
          -> (Text -> IO Statement)
          -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
-migrateOracle allDefs getter val = do
+migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
@@ -431,11 +440,6 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , intercalate "," $ map (escapeDBName . fst) cols
     , ")"
     ]
-    where
-      escapeDBName' (name, (FTTypeCon _ "Text"      )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "String"    )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "ByteString")) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, _                       ) = escapeDBName name
 showAlterTable table (DropUniqueConstraint cname) = concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -535,8 +539,8 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSqlOracle :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSqlOracle t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
+insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "

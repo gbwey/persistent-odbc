@@ -3,10 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- | A MSSQL backend for @persistent@.
 module Database.Persist.MigrateMSSQL
-    ( migrateMSSQL
-     ,insertSqlMSSQL
-     ,escapeDBName
-     ,limitOffset
+    ( getMigrationStrategy 
     ) where
 
 import Control.Arrow
@@ -26,14 +23,27 @@ import Data.Monoid ((<>))
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
+import Database.Persist.ODBCTypes
+
+getMigrationStrategy :: DBType -> MigrationStrategy
+getMigrationStrategy dbtype@MSSQL { mssql2012=ok } = 
+     MigrationStrategy
+                          { dbmsLimitOffset=limitOffset ok
+                           ,dbmsMigrate=migrate'
+                           ,dbmsInsertSql=insertSql'
+                           ,dbmsEscape=T.pack . escapeDBName
+                           ,dbmsType=dbtype
+                          }
+getMigrationStrategy dbtype = error $ "MSSQL: calling with invalid dbtype " ++ show dbtype
+
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrateMSSQL :: Show a
+migrate' :: Show a
          => [EntityDef a]
          -> (Text -> IO Statement)
          -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
-migrateMSSQL allDefs getter val = do
+migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
@@ -516,9 +526,9 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSqlMSSQL :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
 -- should use scope_identity() but doesnt work :gives null
-insertSqlMSSQL t cols _ = ISRInsertGet doInsert "SELECT @@identity"
+insertSql' t cols _ = ISRInsertGet doInsert "SELECT @@identity"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
