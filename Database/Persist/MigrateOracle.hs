@@ -6,6 +6,7 @@ module Database.Persist.MigrateOracle
     ( migrateOracle
      ,insertSqlOracle
      ,escapeDBName
+     ,limitOffset
     ) where
 
 import Control.Arrow
@@ -553,3 +554,10 @@ insertSqlOracle t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++
 
 getSeqNameEscaped :: DBName -> String
 getSeqNameEscaped (DBName s) = escapeDBName $ DBName ("seq_" <> s <> "_id")
+
+limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
+limitOffset oracle12c (limit,offset) hasOrder sql 
+   | limit==0 && offset==0 = sql
+   | oracle12c && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
+   | oracle12c && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
+   | otherwise = error "Oracle does not support limit and offset until Oracle 12c"

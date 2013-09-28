@@ -40,9 +40,7 @@ import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Data.Int (Int64)
 import Data.Conduit
-
---import Database.Persist.MigratePostgres
-
+import Debug.Trace
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -81,7 +79,7 @@ createODBCPool :: MonadIO m
 createODBCPool dbt ci = createSqlPool $ open' dbt ci
 
 -- | List of DBMS that are supported
-data DBType = MySQL | Postgres | MSSQL | Oracle deriving (Show,Read)
+data DBType = MySQL | Postgres | MSSQL { mssql2012::Bool} | Oracle { oracle12c::Bool } deriving (Show,Read)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
@@ -110,9 +108,19 @@ openSimpleConn dbtype conn = do
         , connCommit        = const $ O.commit   conn
         , connRollback      = const $ O.rollback conn
         , connEscapeName    = escape dbtype
-        , connNoLimit       = "" -- "LIMIT ALL"
         , connRDBMS         = T.pack $ show dbtype 
+        , connNoLimit       = "" -- esqueleto uses this but should use connLimitOffset [[move dbtype to persistent proper]]
+        , connLimitOffset = limitOffset dbtype 
         }
+
+limitOffset::DBType -> (Int,Int) -> Bool -> Text -> Text 
+limitOffset dbtype (limit,offset) hasorder sql = trace ("dbtype=" ++ show dbtype ++ " limitoffset=" ++ show (limit,offset) ++ " hasorder=" ++ show hasorder ++ " sql=" ++ show sql) $
+  case dbtype of
+    Postgres -> decorateSQLWithLimitOffset "LIMIT ALL" (limit,offset) hasorder sql 
+    MySQL -> decorateSQLWithLimitOffset "LIMIT 18446744073709551615" (limit,offset) hasorder sql 
+    MSSQL { mssql2012=flag } -> MSSQL.limitOffset flag (limit,offset) hasorder sql 
+    Oracle { oracle12c=flag } -> ORACLE.limitOffset flag (limit,offset) hasorder sql 
+
 
 prepare' :: O.Connection -> Text -> IO Statement
 prepare' conn sql = do
@@ -246,6 +254,8 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlEpochTime e)     = Right $ P $ PersistInt64 $ fromIntegral e
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
+
+charChk :: Char -> PersistValue
 charChk '\0' = PersistBool True
 charChk '\1' = PersistBool False
 charChk c = PersistText $ T.singleton c
@@ -260,8 +270,8 @@ migrate' dbt allDefs getter val =
   case dbt of
     Postgres -> PG.migratePostgres allDefs getter val
     MySQL -> MYSQL.migrateMySQL allDefs getter val
-    MSSQL -> MSSQL.migrateMSSQL allDefs getter val
-    Oracle -> ORACLE.migrateOracle allDefs getter val
+    MSSQL {} -> MSSQL.migrateMSSQL allDefs getter val
+    Oracle {} -> ORACLE.migrateOracle allDefs getter val
     -- _ -> error $ "no handler for " ++ show dbt
 
 -- need different escape strategies for each type
@@ -273,8 +283,8 @@ insertSql' dbtype t cols id' =
   case dbtype of
     Postgres -> PG.insertSqlPostgres t cols id'
     MySQL -> MYSQL.insertSqlMySQL t cols id'
-    MSSQL -> MSSQL.insertSqlMSSQL t cols id'
-    Oracle -> ORACLE.insertSqlOracle t cols id'
+    MSSQL {} -> MSSQL.insertSqlMSSQL t cols id'
+    Oracle {} -> ORACLE.insertSqlOracle t cols id'
 --    _ -> error $ "no handler for " ++ show dbtype
 
 escape :: DBType -> DBName -> Text
@@ -282,7 +292,7 @@ escape dbtype dbname =
   case dbtype of
     Postgres -> PG.escape dbname
     MySQL -> T.pack $ MYSQL.escapeDBName dbname
-    MSSQL -> T.pack $ MSSQL.escapeDBName dbname
-    Oracle -> T.pack $ ORACLE.escapeDBName dbname
+    MSSQL {} -> T.pack $ MSSQL.escapeDBName dbname
+    Oracle {} -> T.pack $ ORACLE.escapeDBName dbname
     -- _ -> error $ "no escape handler for " ++ show dbtype
 

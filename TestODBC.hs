@@ -9,28 +9,28 @@ import Database.Persist.ODBC
 import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
-import Database.HDBC 
-import Database.HDBC.ODBC
-import Text.Shakespeare.Text
-import qualified Data.Text.Lazy 
+--import Database.HDBC 
+--import Database.HDBC.ODBC
+--import Text.Shakespeare.Text
+--import qualified Data.Text.Lazy 
 import Data.Text (Text)
 
 import Data.Time (getCurrentTime,UTCTime)
-import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+--import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 
 import System.Environment (getArgs)
 import Employment
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import Control.Monad (when)
-import qualified Database.HDBC as H
-import qualified Database.HDBC.ODBC as H
+--import qualified Database.HDBC as H
+--import qualified Database.HDBC.ODBC as H
 
 import FtypeEnum
 import qualified Database.Esqueleto as E
 import Database.Esqueleto (select,where_,(^.),from,Value(..))
 
-import Data.Aeson
+--import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Ratio
 import Text.Blaze.Html
@@ -146,8 +146,8 @@ main = do
        case arg of
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
-           "s" -> (MSSQL,"dsn=mssql_testdb; Trusted_Connection=True")
-           "o" -> (Oracle,"dsn=oracle_testdb; Uid=system; Pwd=?;")
+           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True")
+           "o" -> (Oracle False,"dsn=oracle_testdb; Uid=system; Pwd=?;")
            xs -> error $ "unknown option:choose p m s o found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
@@ -155,7 +155,7 @@ main = do
     runMigration migrateAll
     liftIO $ putStrLn $ "after migration"
     case dbtype of 
-      MSSQL -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
+      MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
           deleteWhere ([]::[Filter Personx])
           deleteWhere ([]::[Filter Line])
           deleteWhere ([]::[Filter Xsd])
@@ -166,7 +166,8 @@ main = do
           deleteCascadeWhere ([]::[Filter Person])
 
     when True $ testbase dbtype
-
+    
+testbase :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 testbase dbtype = do    
     liftIO $ putStrLn "\n*** in testbase\n"
     a1 <- insert $ Foo "test"
@@ -200,9 +201,10 @@ testbase dbtype = do
     test3 
     test4
     case dbtype of
-      MSSQL -> liftIO $ putStrLn "\n*** skipping test5 for mssql until blobs are fixed\n"
+      MSSQL {} -> liftIO $ putStrLn "\n*** skipping test5 for mssql until blobs are fixed\n"
       _ -> test5 dbtype
     test6
+    test7 dbtype 
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -274,7 +276,7 @@ test1 dbtype = do
     liftIO $ print pid
 
     let sql = case dbtype of 
-                Oracle -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
+                Oracle {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
                 _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
@@ -312,6 +314,9 @@ test4 = do
     x12 <- insert $ Xsd "NewXsd12" "description for newxsd12" a1
     l121 <- insert $ Line "NewLine121" "description for newline1" 12 Xsd_int x12
     l122 <- insert $ Line "NewLine122" "description for newline2" 19 Xsd_boolean x12
+    l123 <- insert $ Line "NewLine123" "description for newline3" 13 Xsd_string x12
+    l124 <- insert $ Line "NewLine124" "description for newline4" 99 Xsd_double x12
+    l125 <- insert $ Line "NewLine125" "description for newline5" 2 Xsd_boolean x12
 
     a2 <- insert $ Asm "NewAsm2" "description for newasm2" 
 
@@ -332,11 +337,11 @@ test5 dbtype = do
     a3 <- insert $ Testother (Just "nnn") "bbb" 
     a4 <- insert $ Testother (Just "ddd") "mmm" 
     xs <- case dbtype of 
-            Oracle -> selectList ([]::[Filter Testother]) [] -- cannot sort blobs in oracle
+            Oracle {} -> selectList ([]::[Filter Testother]) [] -- cannot sort blobs in oracle
             _ -> selectList [] [Desc TestotherBs1] 
     liftIO $ putStrLn $ "xs=" ++ show xs
     case dbtype of 
-      Oracle -> return ()
+      Oracle {} -> return ()
       _ -> do
               ys <- selectList [] [Desc TestotherBs2] 
               liftIO $ putStrLn $ "ys=" ++ show ys
@@ -352,3 +357,16 @@ test6  = do
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
     
+test7::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test7 dbtype = do
+    let ok=case dbtype of 
+            Oracle False -> False
+            MSSQL False -> False
+            _ -> True
+    when ok $ do
+      xs <- selectList [] [Desc LinePos, LimitTo 2, OffsetBy 3] 
+      liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=3 xs=" ++ show xs
+      xs <- selectList [] [Desc LinePos, LimitTo 2] 
+      liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2 xs=" ++ show xs
+      xs <- selectList [] [Desc LinePos, OffsetBy 3] 
+      liftIO $ putStrLn $ show (length xs) ++ " rows: offset=3 xs=" ++ show xs

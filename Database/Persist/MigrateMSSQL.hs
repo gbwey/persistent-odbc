@@ -6,6 +6,7 @@ module Database.Persist.MigrateMSSQL
     ( migrateMSSQL
      ,insertSqlMSSQL
      ,escapeDBName
+     ,limitOffset
     ) where
 
 import Control.Arrow
@@ -21,6 +22,7 @@ import Data.Text (Text, pack)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
+import Data.Monoid ((<>))
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
@@ -351,6 +353,7 @@ findAlters allDefs col@(Column name isNull type_ def _maxLen ref) cols =
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
+tpcheck :: SqlType -> SqlType -> Bool
 tpcheck (SqlNumeric _ _) SqlReal = True
 tpcheck SqlReal (SqlNumeric _ _) = True
 tpcheck a b = a==b
@@ -417,11 +420,6 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , intercalate "," $ map (escapeDBName . fst) cols
     , ")"
     ]
-    where
-      escapeDBName' (name, (FTTypeCon _ "Text"      )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "String"    )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "ByteString")) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, _                       ) = escapeDBName name
 showAlterTable table (DropUniqueConstraint cname) = concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -531,3 +529,16 @@ insertSqlMSSQL t cols _ = ISRInsertGet doInsert "SELECT @@identity"
         , intercalate "," (map (const "?") cols)
         , ")"
         ]
+        
+limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
+limitOffset mssql2012 (limit,offset) hasOrder sql 
+   | limit==0 && offset==0 = sql
+   | mssql2012 && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
+   | mssql2012 && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
+   | mssql2012 = error "MS SQL Server 2012 requires an order by statement for limit and offset"
+   | otherwise = error "MSSQL does not support limit and offset until MS SQL Server 2012"
+{-
+limitOffset True (limit,offset) False sql = error "MS SQL Server 2012 requires an order by statement for limit and offset" 
+limitOffset False (limit,offset) _ sql = error "MSSQL does not support limit and offset until MS SQL Server 2012"
+limitOffset True (limit,offset) True sql = undefined
+-}
