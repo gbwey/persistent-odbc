@@ -1,3 +1,4 @@
+-- http://stackoverflow.com/questions/14860330/sqlbindparameter-with-sql-varbinarymax-gives-invalid-precision-value
 -- const "convert(varbinary(max), cast (? as varchar(100)))" works for not null blog fields
 -- isnull(?,'') only works for one blog field (Testblog) that is nullable:for multiple fields it fails (Testother)
 {-
@@ -547,10 +548,13 @@ insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ sh
         , intercalate "," (map doValue $ zip cols vals)
         , ")"
         ]
+      --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
+      --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
+      doValue (f@FieldDef { fieldSqlType = SqlBlob }, PersistNull) = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
       doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
-      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')"
--- no     doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, null,null)"
+--      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
+--      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
       doValue _ = "?"
 
         

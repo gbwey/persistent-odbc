@@ -18,18 +18,16 @@ import Employment
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import Control.Monad (when)
---import qualified Database.HDBC as H
---import qualified Database.HDBC.ODBC as H
+import qualified Database.HDBC as H
+import qualified Database.HDBC.ODBC as H
 
 import FtypeEnum
 import qualified Database.Esqueleto as E
 import Database.Esqueleto (select,where_,(^.),from,Value(..))
 
---import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Ratio
 import Text.Blaze.Html
---import Text.Blaze.Html.Renderer.Text
 
 share [mkPersist sqlOnlySettings, mkMigrate "migrateAll", mkDeleteCascade sqlOnlySettings] [persistLowerCase|
 Test0 
@@ -136,6 +134,12 @@ Testhtml
 Testblob 
   bs1 ByteString Maybe
   deriving Show
+
+Testblob3 
+  bs1 ByteString 
+  bs2 ByteString 
+  bs3 ByteString 
+  deriving Show
 |]
 
 main :: IO ()
@@ -145,19 +149,35 @@ main = do
        case arg of
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
-           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True")
-           "so" -> (MSSQL False,"dsn=mssql_testdb; Trusted_Connection=True")
+           "ss" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True")
+           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") 
+           "so" -> (MSSQL False,"dsn=mssql_test2012; Trusted Connection=True") -- use older driver [this is junk]
            "o" -> (Oracle False,"dsn=oracle_testdb") -- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>\Password
-           xs -> error $ "unknown option:choose p m s o found[" ++ xs ++ "]"
+           xs -> error $ "unknown option:choose p m s o so found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
     liftIO $ putStrLn $ "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn $ "after migration"
-    insert $ Testblob Nothing  
-    insert $ Testblob Nothing  
-    insert $ Testblob Nothing  
+    case dbtype of 
+       MSSQL {} -> liftIO $ putStrLn $ "mssql only:inserting null in a blob not supported so skipping"
+       _ -> do
+              _ <- insert $ Testblob Nothing  
+              return ()
+    insert $ Testblob $ Just "some data for testing"
+    insert $ Testblob $ Just "world"
+    liftIO $ putStrLn $ "after testblob inserts"
+
     xs <- selectList ([]::[Filter Testblob]) [] 
+    liftIO $ putStrLn $ "testblob xs=" ++ show xs
+
+    insert $ Testblob3 "zzzz" "bbbb" "cccc"
+    liftIO $ putStrLn $ "after testblob3 inserts"
+
+    xs <- selectList ([]::[Filter Testblob3]) [] 
+    liftIO $ putStrLn $ "testblob3 xs=" ++ show xs
+
+    xs <- selectList ([]::[Filter Testblob]) [] -- hangs here if there a blob is null
     liftIO $ putStrLn $ "xs=" ++ show xs
     case dbtype of 
       MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
@@ -165,6 +185,9 @@ main = do
           deleteWhere ([]::[Filter Line])
           deleteWhere ([]::[Filter Xsd])
           deleteWhere ([]::[Filter Asm])
+          deleteWhere ([]::[Filter Testother])
+          deleteWhere ([]::[Filter Testblob])
+          deleteWhere ([]::[Filter Testblob3])
       _ -> do
           deleteCascadeWhere ([]::[Filter Asm])
           deleteWhere ([]::[Filter Personx])
@@ -211,6 +234,7 @@ testbase dbtype = do
     case dbtype of
       Oracle {} -> return ()
       _ -> test9
+    test10
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -394,6 +418,17 @@ test9 = do
     xs <- selectList [] [Desc LinePos, LimitTo 4] 
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=4,offset=0 xs=" ++ show xs
 
+test10::SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test10 = do
+    liftIO $ putStrLn "\n*** in test10\n"
+    a1 <- insert $ Testblob3 "abc1" "def1" "zzzz1" 
+    a2 <- insert $ Testblob3 "abc2" "def2" "test2" 
+    a3 <- insert $ Testblob3 "" "hello3" "world3" 
+    ys <- selectList ([]::[Filter Testblob3]) [] 
+    liftIO $ putStrLn $ "ys=" ++ show ys
+    
+
+
 limitoffset :: DBType -> Bool
 limitoffset dbtype = 
   case dbtype of 
@@ -401,4 +436,47 @@ limitoffset dbtype =
     MSSQL False -> False
     _ -> True
     
-    
+
+
+main2::IO ()
+main2 = do
+  let connectionString = "dsn=mssql_test2012; Trusted Connection=True" -- "dsn=mssql_testdb; Trusted_Connection=True"
+  --let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+  conn <- H.connectODBC connectionString
+
+  putStrLn $ "\n1\n"
+
+  stmt1 <- H.prepare conn "select * from testblob"
+  putStrLn $ "\n2\n"
+  results <- H.fetchAllRowsAL stmt1
+  putStrLn $ "\n3\n"
+  mapM_ print results
+  putStrLn $ "\n4\n"
+  
+--  a <- H.quickQuery' conn "select * from testblob" []  -- hangs here in both mssql drivers [not all the time]
+--  putStrLn $ "\n5\n"
+--  print a
+
+  stmt <- H.prepare conn "insert into testblob (bs1) values(?)" 
+  putStrLn $ "\n6\n"
+  vals <- H.execute stmt [H.SqlNull] 
+  putStrLn $ "\n7\n"
+  vals <- H.execute stmt [H.SqlNull] 
+  putStrLn $ "\n8\n"
+  vals <- H.execute stmt [H.SqlNull] 
+  putStrLn $ "\n9\n"
+  
+  results <- H.fetchAllRowsAL stmt1
+  mapM_ print results
+  putStrLn $ "\nTESTBLOB worked\n"
+
+  --stmt <- H.prepare conn "insert into testother (bs1,bs2) values(convert(varbinary(max),?),convert(varbinary(max),?))" 
+  stmt <- H.prepare conn "insert into testother (bs1,bs2) values(convert(varbinary(max), cast (? as varchar(100))),convert(varbinary(max), cast (? as varchar(100))))"
+  vals <- H.execute stmt [H.SqlByteString "hello",H.SqlByteString "test"] 
+
+  --vals <- H.execute stmt [H.SqlNull,H.SqlByteString "test"] 
+  putStrLn $ "\nTESTOTHER worked\n"
+
+  H.commit conn
+  print vals
+        
