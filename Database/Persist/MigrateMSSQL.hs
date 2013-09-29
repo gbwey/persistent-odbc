@@ -555,7 +555,7 @@ insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ sh
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
-      doValue _ = "?"
+      doValue _ _ = "?"
 
         
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 

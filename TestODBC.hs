@@ -17,7 +17,7 @@ import System.Environment (getArgs)
 import Employment
 import Data.Conduit
 import qualified Data.Conduit.List as CL
-import Control.Monad (when)
+import Control.Monad (when,unless)
 import qualified Database.HDBC as H
 import qualified Database.HDBC.ODBC as H
 
@@ -164,14 +164,14 @@ main = do
        _ -> do
               _ <- insert $ Testblob Nothing  
               return ()
-    insert $ Testblob $ Just "some data for testing"
-    insert $ Testblob $ Just "world"
+    _ <- insert $ Testblob $ Just "some data for testing"
+    _ <- insert $ Testblob $ Just "world"
     liftIO $ putStrLn "after testblob inserts"
 
     xs <- selectList ([]::[Filter Testblob]) [] 
     liftIO $ putStrLn $ "testblob xs=" ++ show xs
 
-    insert $ Testblob3 "zzzz" "bbbb" "cccc"
+    _ <- insert $ Testblob3 "zzzz" "bbbb" "cccc"
     liftIO $ putStrLn "after testblob3 inserts"
 
     xs <- selectList ([]::[Filter Testblob3]) [] 
@@ -181,17 +181,27 @@ main = do
     liftIO $ putStrLn $ "xs=" ++ show xs
     case dbtype of 
       MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
-          deleteWhere ([]::[Filter Personx])
           deleteWhere ([]::[Filter Line])
           deleteWhere ([]::[Filter Xsd])
           deleteWhere ([]::[Filter Asm])
-          deleteWhere ([]::[Filter Testother])
-          deleteWhere ([]::[Filter Testblob])
-          deleteWhere ([]::[Filter Testblob3])
       _ -> do
           deleteCascadeWhere ([]::[Filter Asm])
-          deleteWhere ([]::[Filter Personx])
           deleteCascadeWhere ([]::[Filter Person])
+
+    deleteWhere ([]::[Filter Person])
+    deleteWhere ([]::[Filter Persony])
+    deleteWhere ([]::[Filter Personx])
+    deleteWhere ([]::[Filter Testother])
+    deleteWhere ([]::[Filter Testrational])
+    deleteWhere ([]::[Filter Testblob])
+    deleteWhere ([]::[Filter Testblob3])
+    deleteWhere ([]::[Filter Testother])
+    deleteWhere ([]::[Filter Testnum])
+    deleteWhere ([]::[Filter Testhtml])
+    deleteWhere ([]::[Filter Testblob3])
+    deleteWhere ([]::[Filter Test1])
+    deleteWhere ([]::[Filter Test0])
+
     when True $ testbase dbtype
  
 testbase :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
@@ -206,8 +216,13 @@ testbase dbtype = do
     janeId <- insert $ Person "Jane Doe" Nothing
     liftIO $ putStrLn $ "janeId[" ++ show janeId ++ "]"
 
+    aa <- selectList ([]::[Filter Person]) []
+    unless (length aa == 2) $ error $ "wrong number of Person rows " ++ show aa
+
     _ <- insert $ BlogPost "My fr1st p0st" johnId
     _ <- insert $ BlogPost "One more for good measure" johnId
+    aa <- selectList ([]::[Filter BlogPost]) []
+    unless (length aa == 2) $ error $ "wrong number of BlogPost rows " ++ show aa
 
     --oneJohnPost <- selectList [BlogPostAuthorId ==. johnId] [LimitTo 1]
     --liftIO $ print (oneJohnPost :: [Entity BlogPost])
@@ -219,6 +234,9 @@ testbase dbtype = do
     v2 <- insert $ Testnum 100 (Just 222) "dude" Nothing dt (Just "something")
     liftIO $ putStrLn $ "v1=" ++ show v1
     liftIO $ putStrLn $ "v2=" ++ show v2
+
+    aa <- selectList ([]::[Filter Testnum]) []
+    unless (length aa == 2) $ error $ "wrong number of Testnum rows " ++ show aa
 
     delete janeId
     deleteWhere [BlogPostAuthorId ==. johnId]
@@ -232,9 +250,9 @@ testbase dbtype = do
     when (limitoffset dbtype) test7
     when (limitoffset dbtype) test8
     case dbtype of
-      Oracle {} -> return ()
+      Oracle { oracle12c=False } -> return ()
       _ -> test9
-    test10
+    test10 dbtype
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -276,6 +294,9 @@ test0 = do
     _ <- insert $ Personx "Abe1" 31 $ Just "brown"
     p9 <- selectList [PersonxName ==. "Abe1"] []
     liftIO $ print p9
+    
+    aa <- selectList ([]::[Filter Personx]) []
+    unless (length aa == 4) $ error $ "wrong number of Personx rows " ++ show aa    
 
     p10 <- getBy $ PersonxNameKey "Michael"
     liftIO $ print p10
@@ -305,6 +326,9 @@ test1 dbtype = do
     pid <- insert $ Persony "bbb Snoyman" Employed
     liftIO $ print pid
 
+    aa <- selectList ([]::[Filter Persony]) []
+    unless (length aa == 4) $ error $ "wrong number of Person rows " ++ show aa
+
     let sql = case dbtype of 
                 Oracle {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
                 _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
@@ -315,6 +339,9 @@ test2 = do
     liftIO $ putStrLn "\n*** in test2\n"
     aaa <- insert $ Test0 False 
     liftIO $ print aaa
+
+    aa <- selectList ([]::[Filter Test0]) []
+    unless (length aa == 1) $ error $ "wrong number of Person rows " ++ show aa
         
 test3::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test3 = do    
@@ -329,6 +356,9 @@ test3 = do
     liftIO $ putStrLn $ "a4=" ++ show a4
     ret <- selectList ([]::[Filter Test1]) [] 
     liftIO $ putStrLn $ "ret=" ++ show ret
+
+    aa <- selectList ([]::[Filter Test1]) []
+    unless (length aa == 4) $ error $ "wrong number of Test1 rows " ++ show aa
 
 test4::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test4 = do
@@ -353,6 +383,14 @@ test4 = do
     a3 <- insert $ Asm "NewAsm3" "description for newasm3" 
     x31 <- insert $ Xsd "NewXsd31" "description for newxsd311" a3
 
+    aa <- selectList ([]::[Filter Asm]) []
+    unless (length aa == 3) $ error $ "wrong number of Asm rows " ++ show aa
+    aa <- selectList ([]::[Filter Xsd]) []
+    unless (length aa == 3) $ error $ "wrong number of Xsd rows " ++ show aa
+    aa <- selectList ([]::[Filter Line]) []
+    unless (length aa == 9) $ error $ "wrong number of Line rows " ++ show aa
+
+
     [Value mpos] <- select $ 
                        from $ \ln -> do
                           where_ (ln ^. LineXsdid E.==. E.val x11)
@@ -366,7 +404,7 @@ test5 dbtype = do
     case dbtype of 
       MSSQL {} -> liftIO $ putStrLn "mssql insert multiple blob fields with a null fails"
       _ -> do
-              a2 <- insert $ Testother Nothing "aaa" -- mssql will insert an empty string instead of a null due to error
+              a2 <- insert $ Testother Nothing "aaa" 
               liftIO $ putStrLn $ "a2=" ++ show a2
     a3 <- insert $ Testother (Just "nnn") "bbb" 
     a4 <- insert $ Testother (Just "ddd") "mmm" 
@@ -380,6 +418,12 @@ test5 dbtype = do
               ys <- selectList [] [Desc TestotherBs2] 
               liftIO $ putStrLn $ "ys=" ++ show ys
     
+    aa <- selectList ([]::[Filter Testother]) []
+    case dbtype of
+      MSSQL {} -> unless (length aa == 3) $ error $ "mssql:wrong number of Testother rows " ++ show aa
+      _ -> unless (length aa == 4) $ error $ "wrong number of Testother rows " ++ show aa
+      
+    
 test6::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test6  = do
     r1 <- insert $ Testrational (4%6)
@@ -390,6 +434,12 @@ test6  = do
     liftIO $ putStrLn $ "zs=" ++ show zs
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
+
+    aa <- selectList ([]::[Filter Testrational]) []
+    unless (length aa == 2) $ error $ "wrong number of Testrational rows " ++ show aa
+
+    aa <- selectList ([]::[Filter Testhtml]) []
+    unless (length aa == 1) $ error $ "wrong number of Testhtml rows " 
     
 test7::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test7 = do
@@ -418,16 +468,27 @@ test9 = do
     xs <- selectList [] [Desc LinePos, LimitTo 4] 
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=4,offset=0 xs=" ++ show xs
 
-test10::SqlPersistT (NoLoggingT (ResourceT IO)) ()
-test10 = do
+test10::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test10 dbtype = do
     liftIO $ putStrLn "\n*** in test10\n"
     a1 <- insert $ Testblob3 "abc1" "def1" "zzzz1" 
     a2 <- insert $ Testblob3 "abc2" "def2" "test2" 
-    a3 <- insert $ Testblob3 "" "hello3" "world3" 
+    case dbtype of 
+      Oracle {} -> liftIO $ putStrLn "cannot insert empty string into oracle blob column (treated as a null)"
+        {-
+        *** Exception: SqlError {seState = "[\"HY000\"]", seNativeError = -1, 
+        seErrorMsg = "execute execute: [\"1400: [Oracle][ODBC][Ora]ORA-01400: cannot insert NULL into (\\\"SYSTEM\\\".\\\"testblob3\\\".\\\"bs1\\\")\\n\"]"}
+        -}
+      _ -> do
+             a3 <- insert $ Testblob3 "" "hello3" "world3" 
+             return ()
     ys <- selectList ([]::[Filter Testblob3]) [] 
     liftIO $ putStrLn $ "ys=" ++ show ys
-    
 
+    aa <- selectList ([]::[Filter Testblob3]) []
+    case dbtype of
+      Oracle {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testblob3 rows " ++ show aa
+      _ -> unless (length aa == 3) $ error $ "wrong number of Testblob3 rows " ++ show aa
 
 limitoffset :: DBType -> Bool
 limitoffset dbtype = 
@@ -436,12 +497,9 @@ limitoffset dbtype =
     MSSQL False -> False
     _ -> True
     
-
-
 main2::IO ()
 main2 = do
-  let connectionString = "dsn=mssql_test2012; Trusted Connection=True" -- "dsn=mssql_testdb; Trusted_Connection=True"
-  --let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
   conn <- H.connectODBC connectionString
 
   putStrLn "\n1\n"

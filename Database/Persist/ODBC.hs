@@ -241,7 +241,7 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlPOSIXTime pt)    = Right $ P $ PersistDouble $ fromRational $ toRational pt
     safeConvert (HSV.SqlEpochTime e)     = Right $ P $ PersistInt64 $ fromIntegral e
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
-    safeConvert (HSV.SqlNull)            = Right P PersistNull
+    safeConvert (HSV.SqlNull)            = Right $ P PersistNull
 
 charChk :: Char -> PersistValue
 charChk '\0' = PersistBool True
