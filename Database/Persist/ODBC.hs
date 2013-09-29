@@ -1,4 +1,3 @@
-{-# LANGUAGE EmptyDataDecls    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
@@ -82,16 +81,16 @@ createODBCPool dbt ci = createSqlPool $ open' (getMigrationStrategy dbt) ci
 -- of connections, only one connection is opened.
 withODBCConn :: (MonadIO m, MonadBaseControl IO m)
              => DBType -> ConnectionString -> (Connection -> m a) -> m a
-withODBCConn dbt cs ma = withSqlConn (open' (getMigrationStrategy dbt) cs) ma
+withODBCConn dbt cs = withSqlConn (open' (getMigrationStrategy dbt) cs)
 
 open' :: MigrationStrategy -> ConnectionString -> IO Connection
-open' mig cstr = do
+open' mig cstr = 
     O.connectODBC cstr >>= openSimpleConn mig
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
 openSimpleConn :: MigrationStrategy -> O.Connection -> IO Connection
 openSimpleConn mig conn = do
-    smap <- newIORef $ Map.empty
+    smap <- newIORef Map.empty
     return Connection
         { connPrepare       = prepare' conn
         , connStmtMap       = smap
@@ -201,10 +200,10 @@ instance DC.Convertible P HSV.SqlValue where
     safeConvert (P (PersistTimeOfDay t))        = Right $ HSV.toSql t
     safeConvert (P (PersistUTCTime t))          = Right $ HSV.toSql t
     safeConvert (P (PersistZonedTime (ZT t)))   = Right $ HSV.toSql t
-    safeConvert (P PersistNull)                 = Right $ HSV.SqlNull
+    safeConvert (P PersistNull)                 = Right HSV.SqlNull
     safeConvert (P (PersistList l))             = Right $ HSV.toSql $ listToJSON l
     safeConvert (P (PersistMap m))              = Right $ HSV.toSql $ mapToJSON m
-    safeConvert p@(P (PersistObjectId _))       = Left $ DC.ConvertError 
+    safeConvert p@(P (PersistObjectId _))       = Left DC.ConvertError 
         { DC.convSourceValue   = show p
         , DC.convSourceType    = "P (PersistValue)" 
         , DC.convDestType      = "SqlValue"
@@ -214,12 +213,12 @@ instance DC.Convertible P HSV.SqlValue where
 instance DC.Convertible HSV.SqlValue P where 
     safeConvert (HSV.SqlString s)        = Right $ P $ PersistText $ T.pack s
     safeConvert (HSV.SqlByteString bs)   = Right $ P $ PersistByteString bs
-    safeConvert v@(HSV.SqlWord32 _)      = Left $ DC.ConvertError
+    safeConvert v@(HSV.SqlWord32 _)      = Left DC.ConvertError
         { DC.convSourceValue   = show v
         , DC.convSourceType    = "SqlValue"
         , DC.convDestType      = "P (PersistValue)"
         , DC.convErrorMessage  = "There is no conversion from SqlWord32 to PersistValue" }
-    safeConvert v@(HSV.SqlWord64 _)      = Left $ DC.ConvertError
+    safeConvert v@(HSV.SqlWord64 _)      = Left DC.ConvertError
         { DC.convSourceValue   = show v
         , DC.convSourceType    = "SqlValue"
         , DC.convDestType      = "P (PersistValue)"
@@ -242,7 +241,7 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlPOSIXTime pt)    = Right $ P $ PersistDouble $ fromRational $ toRational pt
     safeConvert (HSV.SqlEpochTime e)     = Right $ P $ PersistInt64 $ fromIntegral e
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
-    safeConvert (HSV.SqlNull)            = Right $ P PersistNull
+    safeConvert (HSV.SqlNull)            = Right P PersistNull
 
 charChk :: Char -> PersistValue
 charChk '\0' = PersistBool True

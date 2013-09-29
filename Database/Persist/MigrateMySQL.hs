@@ -173,7 +173,7 @@ getColumns getter def = do
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
 
     -- Return both
-    return $ (ids, cs ++ us)
+    return (ids, cs ++ us)
   where
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ entityID def ]
@@ -233,7 +233,7 @@ getColumn getter tname [ PersistByteString cname
                               \and REFERENCED_TABLE_SCHEMA=schema() \
                             \ORDER BY CONSTRAINT_NAME, \
                                      \COLUMN_NAME"
-      let vars = [ PersistText $ unDBName $ tname
+      let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname
                  ]
       cntrs <- runResourceT $ stmtQuery stmt vars $$ CL.consume
@@ -435,9 +435,9 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , ")"
     ]
     where
-      escapeDBName' (name, (FTTypeCon _ "Text"      )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "String"    )) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, (FTTypeCon _ "ByteString")) = escapeDBName name ++ "(200)"
+      escapeDBName' (name, FTTypeCon _ "Text"      ) = escapeDBName name ++ "(200)"
+      escapeDBName' (name, FTTypeCon _ "String"    ) = escapeDBName name ++ "(200)"
+      escapeDBName' (name, FTTypeCon _ "ByteString") = escapeDBName name ++ "(200)"
       escapeDBName' (name, _                       ) = escapeDBName name
 showAlterTable table (DropUniqueConstraint cname) = concat
     [ "ALTER TABLE "

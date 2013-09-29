@@ -173,7 +173,7 @@ getColumns getter def = do
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
 
     -- Return both
-    return $ (ids, cs ++ us)
+    return (ids, cs ++ us)
   where
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ entityID def ]
@@ -237,7 +237,7 @@ getColumn getter tname [ PersistByteString cname
              \UCC.TABLE_NAME, \
              \UCC.COLUMN_NAME"
 
-      let vars = [ PersistText $ unDBName $ tname
+      let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname 
                  ]
       cntrs <- runResourceT $ stmtQuery stmt vars $$ CL.consume
@@ -548,11 +548,11 @@ insertSql' t cols idcol _ = ISRInsertGet doInsert $ T.pack ("select cast(" ++ ge
         , escapeDBName t
         , "("
         , escapeDBName idcol
-        , (if null cols then "" else ",")
+        , if null cols then "" else ","
         , intercalate "," $ map (escapeDBName . fieldDB) cols
         , ") VALUES("
         , getSeqNameEscaped t ++ ".nextval"
-        , (if null cols then "" else ",")
+        , if null cols then "" else ","
         , intercalate "," (map (const "?") cols)
         , ")"
         ]

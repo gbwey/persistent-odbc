@@ -177,7 +177,7 @@ getColumns getter def = do
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
 
     -- Return both
-    return $ (ids, cs ++ us)
+    return (ids, cs ++ us)
   where
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ entityID def ]
@@ -240,7 +240,7 @@ getColumn getter tname [ PersistByteString cname
       \where KCU1.TABLE_NAME = ? and KCU1.COLUMN_NAME = ? \
       \order by CONSTRAINT_NAME, KCU1.COLUMN_NAME"
 
-      let vars = [ PersistText $ unDBName $ tname
+      let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname 
                  ]
       cntrs <- runResourceT $ stmtQuery stmt vars $$ CL.consume
@@ -545,13 +545,13 @@ insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ sh
         , "("
         , intercalate "," $ map (escapeDBName . fieldDB) cols
         , ") VALUES("
-        , intercalate "," (map doValue $ zip cols vals)
+        , intercalate "," $ zipWith doValue cols vals
         , ")"
         ]
       --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
       --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
-      doValue (f@FieldDef { fieldSqlType = SqlBlob }, PersistNull) = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
+      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"

@@ -156,23 +156,23 @@ main = do
            xs -> error $ "unknown option:choose p m s o so found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
-    liftIO $ putStrLn $ "\nbefore migration\n"
+    liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
-    liftIO $ putStrLn $ "after migration"
+    liftIO $ putStrLn "after migration"
     case dbtype of 
-       MSSQL {} -> liftIO $ putStrLn $ "mssql only:inserting null in a blob not supported so skipping"
+       MSSQL {} -> liftIO $ putStrLn "mssql only:inserting null in a blob not supported so skipping"
        _ -> do
               _ <- insert $ Testblob Nothing  
               return ()
     insert $ Testblob $ Just "some data for testing"
     insert $ Testblob $ Just "world"
-    liftIO $ putStrLn $ "after testblob inserts"
+    liftIO $ putStrLn "after testblob inserts"
 
     xs <- selectList ([]::[Filter Testblob]) [] 
     liftIO $ putStrLn $ "testblob xs=" ++ show xs
 
     insert $ Testblob3 "zzzz" "bbbb" "cccc"
-    liftIO $ putStrLn $ "after testblob3 inserts"
+    liftIO $ putStrLn "after testblob3 inserts"
 
     xs <- selectList ([]::[Filter Testblob3]) [] 
     liftIO $ putStrLn $ "testblob3 xs=" ++ show xs
@@ -243,7 +243,7 @@ test0 = do
     liftIO $ print pid
 
     p1 <- get pid
-    liftIO $ putStrLn $ show p1
+    liftIO $ print p1
 
     replace pid $ Personx "Michael" 26 Nothing
     p2 <- get pid
@@ -314,7 +314,7 @@ test2::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test2 = do
     liftIO $ putStrLn "\n*** in test2\n"
     aaa <- insert $ Test0 False 
-    liftIO $ putStrLn $ show aaa
+    liftIO $ print aaa
         
 test3::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test3 = do    
@@ -444,38 +444,37 @@ main2 = do
   --let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
   conn <- H.connectODBC connectionString
 
-  putStrLn $ "\n1\n"
-
+  putStrLn "\n1\n"
   stmt1 <- H.prepare conn "select * from testblob"
-  putStrLn $ "\n2\n"
+  putStrLn "\n2\n"
   results <- H.fetchAllRowsAL stmt1
-  putStrLn $ "\n3\n"
+  putStrLn "\n3\n"
   mapM_ print results
-  putStrLn $ "\n4\n"
+  putStrLn "\n4\n"
   
 --  a <- H.quickQuery' conn "select * from testblob" []  -- hangs here in both mssql drivers [not all the time]
 --  putStrLn $ "\n5\n"
 --  print a
 
   stmt <- H.prepare conn "insert into testblob (bs1) values(?)" 
-  putStrLn $ "\n6\n"
+  putStrLn "\n6\n"
   vals <- H.execute stmt [H.SqlNull] 
-  putStrLn $ "\n7\n"
+  putStrLn "\n7\n"
   vals <- H.execute stmt [H.SqlNull] 
-  putStrLn $ "\n8\n"
+  putStrLn "\n8\n"
   vals <- H.execute stmt [H.SqlNull] 
-  putStrLn $ "\n9\n"
+  putStrLn "\n9\n"
   
   results <- H.fetchAllRowsAL stmt1
   mapM_ print results
-  putStrLn $ "\nTESTBLOB worked\n"
+  putStrLn "\nTESTBLOB worked\n"
 
   --stmt <- H.prepare conn "insert into testother (bs1,bs2) values(convert(varbinary(max),?),convert(varbinary(max),?))" 
   stmt <- H.prepare conn "insert into testother (bs1,bs2) values(convert(varbinary(max), cast (? as varchar(100))),convert(varbinary(max), cast (? as varchar(100))))"
   vals <- H.execute stmt [H.SqlByteString "hello",H.SqlByteString "test"] 
 
   --vals <- H.execute stmt [H.SqlNull,H.SqlByteString "test"] 
-  putStrLn $ "\nTESTOTHER worked\n"
+  putStrLn "\nTESTOTHER worked\n"
 
   H.commit conn
   print vals
