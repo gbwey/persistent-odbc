@@ -8,9 +8,33 @@ for doing the initial hookup to hdbc-odbc.
 
 Supports Postgres, MySql, MS Sql Server and Oracle.
 
-Limit and Offset are not yet supported in MS Sql Server and Oracle.
+see TestODBC.hs for usage and tests.
 
-This requires the modified version of Persistent and Esqueleto in this repository to work.
+Limit and Offset in Ms Sql Server and Oracle
+--------------------------------------------
+use MSSQL True if you have MS Sql Server 2012 which has limit and offset support (esqueleto as well)
+MSSQL False will support Limit only using persistent select
+
+use Oracle True if you have Oracle >=12c which has limit and offset support (esqueleto as well)
+use Oracle False if you have Oracle <12c where there is no limit and offset support 
+
+Ms Sql Server and Blobs
+-----------------------
+blobs don't support nulls in this version of persistent-odbc (also doesnt work in hdbc-odbc)
+may have problems with blobs and latest 2012 odbc driver (am using an older version)
+
+Ms Sql Server and deleteCascadeWhere
+------------------------------------
+can cause segfault in Ms Sql Server
+
+Oracle and nulls
+----------------
+treats empty string as a null
+
+Oracle and sorting blobs
+------------------------
+cannot sort on a blob field
+
 
 How to get started using cabal >= 1.18
 ======================================
