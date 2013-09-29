@@ -49,4 +49,10 @@ cabal sandbox add-source ..\esqueleto
 cabal install --only-dependencies
 -- assuming all goes well then ...
 cabal repl
-
+:l TestODBC.hs  [[after creating/changing the odbc system dsns]]
+:main s  [[test with mssql 2012]]
+:main so [[test with mssql pre 2012]]
+:main o  [[test with oracle pre 12c]]
+:main on [[test with oracle >=12c]]
+:main p  [[test with postgres]]
+:main m  [[test with mysql]]

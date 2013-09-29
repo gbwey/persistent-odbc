@@ -144,16 +144,18 @@ Testblob3
 
 main :: IO ()
 main = do
+-- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>
   [arg] <- getArgs
   let (dbtype,dsn) = 
-       case arg of
+       case arg of -- odbc system dsn
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
-           "ss" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True")
-           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") 
-           "so" -> (MSSQL False,"dsn=mssql_test2012; Trusted Connection=True") -- use older driver [this is junk]
-           "o" -> (Oracle False,"dsn=oracle_testdb") -- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>\Password
-           xs -> error $ "unknown option:choose p m s o so found[" ++ xs ++ "]"
+           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]
+           "so" -> (MSSQL False,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
+           -- "so" -> (MSSQL False,"dsn=mssql_test2012; Trusted Connection=True") -- use older driver [this is junk]
+           "o" -> (Oracle False,"dsn=oracle_testdb") -- pre oracle 12c [no support for limit and offset] 
+           "on" -> (Oracle True,"dsn=oracle_testdb") -- >= oracle 12c [full limit and offset support]
+           xs -> error $ "unknown option:choose p m s so o on found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
     liftIO $ putStrLn "\nbefore migration\n"
@@ -474,7 +476,7 @@ test10 dbtype = do
     a1 <- insert $ Testblob3 "abc1" "def1" "zzzz1" 
     a2 <- insert $ Testblob3 "abc2" "def2" "test2" 
     case dbtype of 
-      Oracle {} -> liftIO $ putStrLn "cannot insert empty string into oracle blob column (treated as a null)"
+      Oracle {} -> liftIO $ putStrLn "skipping insert empty string into oracle blob column (treated as a null)"
         {-
         *** Exception: SqlError {seState = "[\"HY000\"]", seNativeError = -1, 
         seErrorMsg = "execute execute: [\"1400: [Oracle][ODBC][Ora]ORA-01400: cannot insert NULL into (\\\"SYSTEM\\\".\\\"testblob3\\\".\\\"bs1\\\")\\n\"]"}
