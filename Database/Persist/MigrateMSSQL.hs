@@ -1,5 +1,5 @@
--- const "convert(varbinary(max), cast (? as varchar(100)))" works
--- convert(varbinary(max),?)  -- even better
+-- const "convert(varbinary(max), cast (? as varchar(100)))" works for not null blog fields
+-- isnull(?,'') only works for one blog field (Testblog) that is nullable:for multiple fields it fails (Testother)
 {-
 *** Exception: SqlError {seState = "[\"HY104\"]", seNativeError = -1, 
 seErrorMsg = "bindparameter NULL 1: [\"0: [Microsoft][ODBC SQL Server Driver]Invalid precision value\"]"}
@@ -548,7 +548,7 @@ insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ sh
         , ")"
         ]
       doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
---yes      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
+--      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
       doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')"
 -- no     doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, null,null)"
       doValue _ = "?"

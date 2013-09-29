@@ -135,6 +135,7 @@ Testhtml
 
 Testblob 
   bs1 ByteString Maybe
+  deriving Show
 |]
 
 main :: IO ()
@@ -153,12 +154,11 @@ main = do
     liftIO $ putStrLn $ "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn $ "after migration"
-    --test5 dbtype
     insert $ Testblob Nothing  
-    fail "\n\nIT WORKED\n\n"
-    xs <- selectList ([]::[Filter Testother]) [] 
+    insert $ Testblob Nothing  
+    insert $ Testblob Nothing  
+    xs <- selectList ([]::[Filter Testblob]) [] 
     liftIO $ putStrLn $ "xs=" ++ show xs
-{-
     case dbtype of 
       MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
           deleteWhere ([]::[Filter Personx])
@@ -169,8 +169,7 @@ main = do
           deleteCascadeWhere ([]::[Filter Asm])
           deleteWhere ([]::[Filter Personx])
           deleteCascadeWhere ([]::[Filter Person])
--}
-    when False $ testbase dbtype
+    when True $ testbase dbtype
  
 testbase :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 testbase dbtype = do    
@@ -340,12 +339,11 @@ test5::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test5 dbtype = do
     liftIO $ putStrLn "\n*** in test5\n"
     a1 <- insert $ Testother (Just "abc") "zzzz" 
-    case dbtype of
-      MSSQL {} -> liftIO $ putStrLn $ "skipping mssql null insert into blog"
+    case dbtype of 
+      MSSQL {} -> liftIO $ putStrLn "mssql insert multiple blob fields with a null fails"
       _ -> do
-             a2 <- insert $ Testother Nothing "aaa" 
-             liftIO $ putStrLn $ "a2=" ++ show a2
-             return ()
+              a2 <- insert $ Testother Nothing "aaa" -- mssql will insert an empty string instead of a null due to error
+              liftIO $ putStrLn $ "a2=" ++ show a2
     a3 <- insert $ Testother (Just "nnn") "bbb" 
     a4 <- insert $ Testother (Just "ddd") "mmm" 
     xs <- case dbtype of 
