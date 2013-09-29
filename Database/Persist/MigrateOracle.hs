@@ -492,10 +492,11 @@ showAlter table (n, Default s) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " ALTER COLUMN "
+    , " MODIFY ("
     , escapeDBName n
-    , " SET DEFAULT "
+    , " DEFAULT "
     , s
+    , ")"
     ]
 showAlter table (n, NoDefault) =
     concat
