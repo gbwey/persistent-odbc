@@ -12,7 +12,7 @@ data DBType = MySQL | Postgres | MSSQL { mssql2012::Bool} | Oracle { oracle12c::
 data MigrationStrategy = MigrationStrategy { 
                             dbmsLimitOffset :: (Int,Int) -> Bool -> Text -> Text 
                            ,dbmsMigrate :: Show a => [EntityDef a] -> (Text -> IO Statement) -> EntityDef SqlType -> IO (Either [Text] [(Bool, Text)])
-                           ,dbmsInsertSql :: DBName -> [DBName] -> DBName -> InsertSqlResult
+                           ,dbmsInsertSql :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
                            ,dbmsEscape :: DBName -> Text
                            ,dbmsType :: DBType
                            }

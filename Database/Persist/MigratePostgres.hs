@@ -440,12 +440,12 @@ refName (DBName table) (DBName column) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSql' t cols id' = ISRSingle $ pack $ concat
+insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
+insertSql' t cols id' _ = ISRSingle $ pack $ concat
     [ "INSERT INTO "
     , T.unpack $ escape t
     , "("
-    , intercalate "," $ map (T.unpack . escape) cols
+    , intercalate "," $ map (T.unpack . escape . fieldDB) cols
     , ") VALUES("
     , intercalate "," (map (const "?") cols)
     , ") RETURNING "

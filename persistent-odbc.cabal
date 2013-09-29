@@ -16,7 +16,7 @@ Flag debug
 
 Flag test
   Description: test.
-  Default: False
+  Default: True
   
 library
     if flag(debug)
@@ -28,9 +28,9 @@ library
                       , Database.Persist.MigrateMySQL
                       , Database.Persist.MigrateMSSQL
                       , Database.Persist.MigrateOracle
-    if flag(test)
-                    exposed-modules:
-                          TestODBC
+--    if flag(test)
+--                    exposed-modules:
+                         , TestODBC
                         , FtypeEnum
 
     ghc-options:   -Wall -O2
@@ -50,9 +50,9 @@ library
                 , resourcet
                 , persistent-template
                 , bytestring
-    if flag(test)
-               build-depends: 
-                    esqueleto 
+--    if flag(test)
+--               build-depends: 
+                   , esqueleto 
                    ,blaze-html
     
     

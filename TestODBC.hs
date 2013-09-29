@@ -9,14 +9,9 @@ import Database.Persist.ODBC
 import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
---import Database.HDBC 
---import Database.HDBC.ODBC
---import Text.Shakespeare.Text
---import qualified Data.Text.Lazy 
 import Data.Text (Text)
 
 import Data.Time (getCurrentTime,UTCTime)
---import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 
 import System.Environment (getArgs)
 import Employment
@@ -137,6 +132,9 @@ Testrational json
 Testhtml 
   myhtml Html
   -- deriving Show
+
+Testblob 
+  bs1 ByteString Maybe
 |]
 
 main :: IO ()
@@ -155,6 +153,12 @@ main = do
     liftIO $ putStrLn $ "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn $ "after migration"
+    --test5 dbtype
+    insert $ Testblob Nothing  
+    fail "\n\nIT WORKED\n\n"
+    xs <- selectList ([]::[Filter Testother]) [] 
+    liftIO $ putStrLn $ "xs=" ++ show xs
+{-
     case dbtype of 
       MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
           deleteWhere ([]::[Filter Personx])
@@ -165,9 +169,9 @@ main = do
           deleteCascadeWhere ([]::[Filter Asm])
           deleteWhere ([]::[Filter Personx])
           deleteCascadeWhere ([]::[Filter Person])
-
-    when True $ testbase dbtype
-    
+-}
+    when False $ testbase dbtype
+ 
 testbase :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 testbase dbtype = do    
     liftIO $ putStrLn "\n*** in testbase\n"
@@ -201,9 +205,7 @@ testbase dbtype = do
     test2 
     test3 
     test4
-    case dbtype of
-      MSSQL {} -> liftIO $ putStrLn "\n*** skipping test5 for mssql until blobs are fixed\n"
-      _ -> test5 dbtype
+    test5 dbtype
     test6
     when (limitoffset dbtype) test7
     when (limitoffset dbtype) test8
@@ -338,7 +340,12 @@ test5::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test5 dbtype = do
     liftIO $ putStrLn "\n*** in test5\n"
     a1 <- insert $ Testother (Just "abc") "zzzz" 
-    a2 <- insert $ Testother Nothing "aaa" 
+    case dbtype of
+      MSSQL {} -> liftIO $ putStrLn $ "skipping mssql null insert into blog"
+      _ -> do
+             a2 <- insert $ Testother Nothing "aaa" 
+             liftIO $ putStrLn $ "a2=" ++ show a2
+             return ()
     a3 <- insert $ Testother (Just "nnn") "bbb" 
     a4 <- insert $ Testother (Just "ddd") "mmm" 
     xs <- case dbtype of 

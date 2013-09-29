@@ -1,3 +1,10 @@
+-- const "convert(varbinary(max), cast (? as varchar(100)))" works
+-- convert(varbinary(max),?)  -- even better
+{-
+*** Exception: SqlError {seState = "[\"HY104\"]", seNativeError = -1, 
+seErrorMsg = "bindparameter NULL 1: [\"0: [Microsoft][ODBC SQL Server Driver]Invalid precision value\"]"}
+-}
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -527,19 +534,25 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
+insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
 -- should use scope_identity() but doesnt work :gives null
-insertSql' t cols _ = ISRInsertGet doInsert "SELECT @@identity"
+insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ show cols ++ " vals=" ++ show vals) $ ISRInsertGet doInsert "SELECT @@identity"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
         , escapeDBName t
         , "("
-        , intercalate "," $ map escapeDBName cols
+        , intercalate "," $ map (escapeDBName . fieldDB) cols
         , ") VALUES("
-        , intercalate "," (map (const "?") cols)
+        , intercalate "," (map doValue $ zip cols vals)
         , ")"
         ]
+      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
+--yes      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
+      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')"
+-- no     doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, null,null)"
+      doValue _ = "?"
+
         
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
 limitOffset mssql2012 (limit,offset) hasOrder sql 

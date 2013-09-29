@@ -540,8 +540,8 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: DBName -> [DBName] -> DBName -> InsertSqlResult
-insertSql' t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
+insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
+insertSql' t cols idcol _ = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
@@ -549,7 +549,7 @@ insertSql' t cols idcol = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getS
         , "("
         , escapeDBName idcol
         , (if null cols then "" else ",")
-        , intercalate "," $ map escapeDBName cols
+        , intercalate "," $ map (escapeDBName . fieldDB) cols
         , ") VALUES("
         , getSeqNameEscaped t ++ ".nextval"
         , (if null cols then "" else ",")
