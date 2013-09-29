@@ -140,6 +140,15 @@ Testblob3
   bs2 ByteString 
   bs3 ByteString 
   deriving Show
+
+Testlen
+  txt  Text maxlen=5 default='xx11'
+  str  String maxlen=5
+  bs   ByteString maxlen=5
+  mtxt Text Maybe maxlen=5
+  mstr String Maybe maxlen=5
+  mbs  ByteString Maybe maxlen=5
+  deriving Show
 |]
 
 main :: IO ()
@@ -162,26 +171,6 @@ main = do
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
     case dbtype of 
-       MSSQL {} -> liftIO $ putStrLn "mssql only:inserting null in a blob not supported so skipping"
-       _ -> do
-              _ <- insert $ Testblob Nothing  
-              return ()
-    _ <- insert $ Testblob $ Just "some data for testing"
-    _ <- insert $ Testblob $ Just "world"
-    liftIO $ putStrLn "after testblob inserts"
-
-    xs <- selectList ([]::[Filter Testblob]) [] 
-    liftIO $ putStrLn $ "testblob xs=" ++ show xs
-
-    _ <- insert $ Testblob3 "zzzz" "bbbb" "cccc"
-    liftIO $ putStrLn "after testblob3 inserts"
-
-    xs <- selectList ([]::[Filter Testblob3]) [] 
-    liftIO $ putStrLn $ "testblob3 xs=" ++ show xs
-
-    xs <- selectList ([]::[Filter Testblob]) [] -- hangs here if there a blob is null
-    liftIO $ putStrLn $ "xs=" ++ show xs
-    case dbtype of 
       MSSQL {} -> do -- deleteCascadeWhere Asm causes seg fault for mssql only
           deleteWhere ([]::[Filter Line])
           deleteWhere ([]::[Filter Xsd])
@@ -203,6 +192,7 @@ main = do
     deleteWhere ([]::[Filter Testblob3])
     deleteWhere ([]::[Filter Test1])
     deleteWhere ([]::[Filter Test0])
+    deleteWhere ([]::[Filter Testlen])
 
     when True $ testbase dbtype
  
@@ -255,6 +245,8 @@ testbase dbtype = do
       Oracle { oracle12c=False } -> return ()
       _ -> test9
     test10 dbtype
+    test11 dbtype
+    test12 dbtype
     
 test0::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test0 = do
@@ -491,6 +483,39 @@ test10 dbtype = do
     case dbtype of
       Oracle {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testblob3 rows " ++ show aa
       _ -> unless (length aa == 3) $ error $ "wrong number of Testblob3 rows " ++ show aa
+
+test11::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test11 dbtype = do
+    liftIO $ putStrLn "\n*** in test11\n"
+    case dbtype of 
+       MSSQL {} -> liftIO $ putStrLn "mssql only:inserting null in a blob not supported so skipping"
+       _ -> do
+              _ <- insert $ Testblob Nothing  
+              return ()
+    _ <- insert $ Testblob $ Just "some data for testing"
+    _ <- insert $ Testblob $ Just "world"
+    liftIO $ putStrLn "after testblob inserts"
+
+    xs <- selectList ([]::[Filter Testblob]) [] -- mssql fails if there is a null in a blog column
+    liftIO $ putStrLn $ "testblob xs=" ++ show xs
+
+    aa <- selectList ([]::[Filter Testblob]) []
+    case dbtype of
+      MSSQL {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testblob rows " ++ show aa
+      _ -> unless (length aa == 3) $ error $ "wrong number of Testblob rows " ++ show aa
+
+test12::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
+test12 dbtype = do
+    liftIO $ putStrLn "\n*** in test12\n"
+    a1 <- insert $ Testlen "txt1" "str1" "bs1" (Just "txt1m") (Just "str1m") (Just "bs1m")     
+    a2 <- insert $ Testlen "txt2" "str2" "bs2" (Just "aaaa") (Just "str2m") (Just "bs2m")     
+
+    aa <- selectList ([]::[Filter Testlen]) []
+    case dbtype of
+      -- Oracle {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testlen rows " ++ show aa
+      _ -> unless (length aa == 2) $ error $ "wrong number of Testlen rows " ++ show aa
+
+    liftIO $ putStrLn $ "aa=" ++ show aa
 
 limitoffset :: DBType -> Bool
 limitoffset dbtype = 

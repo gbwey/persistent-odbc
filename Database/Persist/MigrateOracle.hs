@@ -43,11 +43,16 @@ migrate' :: Show a
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
     let name = entityDB val
-    (idClmn, old) <- getColumns getter val
+    (idClmn, old, mseq) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
-    case (idClmn, old, partitionEithers old) of
+    let addSequence = AddSequence $ concat
+            [ "CREATE SEQUENCE " 
+            ,getSeqNameEscaped name
+            , " START WITH 1 INCREMENT BY 1"
+            ]
+    case (idClmn, old, partitionEithers old, mseq) of
       -- Nothing found, create everything
-      ([], [], _) -> do
+      ([], [], _, _) -> do
         let addTable = AddTable $ concat
                 [ "CREATE TABLE "
                 , escapeDBName name
@@ -56,11 +61,6 @@ migrate' allDefs getter val = do
                 , " NUMBER NOT NULL PRIMARY KEY"
                 , concatMap (\x -> ',' : showColumn x) $ fst new
                 , ")"
-                ]
-        let addSequence = AddSequence $ concat
-                [ "CREATE SEQUENCE " 
-                ,getSeqNameEscaped name
-                , " START WITH 1 INCREMENT BY 1"
                 ]
         let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
                       [ AlterTable name $
@@ -71,13 +71,13 @@ migrate' allDefs getter val = do
               return $ AlterColumn name (cname, addReference allDefs refTblName)
         return $ Right $ map showAlterDb $ addTable : addSequence : uniques ++ foreigns
       -- No errors and something found, migrate
-      (_, _, ([], old')) -> do
+      (_, _, ([], old'),mseq) -> do
         let (acs, ats) = getAlters allDefs name new $ partitionEithers old'
             acs' = map (AlterColumn name) acs
             ats' = map (AlterTable  name) ats
-        return $ Right $ map showAlterDb $ acs' ++ ats'
+        return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)
       -- Errors
-      (_, _, (errs, _)) -> return $ Left errs
+      (_, _, (errs, _), _) -> return $ Left errs
 
 
 -- | Find out the type of a column.
@@ -134,8 +134,10 @@ getColumns :: (Text -> IO Statement)
            -> EntityDef a
            -> IO ( [Either Text (Either Column (DBName, [DBName]))] -- ID column
                  , [Either Text (Either Column (DBName, [DBName]))] -- everything else
+                 , Maybe PersistValue -- sequence name
                  )
 getColumns getter def = do
+    --liftIO $ putStrLn $ "getColumns getter vals=" ++ show vals
     -- Find out ID column.
     stmtIdClmn <- getter "SELECT COLUMN_NAME, \
                                  \cast(NULLABLE as CHAR) as IS_NULLABLE, \
@@ -146,6 +148,13 @@ getColumns getter def = do
                             \AND COLUMN_NAME  = ?"
     inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
+
+    -- Find if sequence already exists.
+    stmtSeq <- getter "SELECT sequence_name \
+                          \FROM user_sequences \
+                          \WHERE sequence_name   = ?"
+    seqlist <- runResourceT $ stmtQuery stmtSeq [PersistText $ getSeqNameUnescaped $ entityDB def] $$ CL.consume
+    --liftIO $ putStrLn $ "seqlist=" ++ show seqlist
 
     -- Find out all columns.
     stmtClmns <- getter "SELECT COLUMN_NAME, \
@@ -173,8 +182,12 @@ getColumns getter def = do
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
 
     -- Return both
-    return (ids, cs ++ us)
+    return (ids, cs ++ us, listAsMaybe seqlist)
   where
+    listAsMaybe [] = Nothing
+    listAsMaybe [[x]] = Just x
+    listAsMaybe xs = error $ "returned to many sequences xs=" ++ show xs
+    
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ entityID def ]
 
@@ -404,7 +417,7 @@ showSqlType :: SqlType
             -> Maybe Integer -- ^ @maxlen@
             -> String
 showSqlType SqlBlob    Nothing    = "BLOB"
-showSqlType SqlBlob    (Just i)   = "BLOB(" ++ show i ++ ")"
+showSqlType SqlBlob    (Just i)   = "BLOB" -- cannot specify the size 
 showSqlType SqlBool    _          = "CHAR"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "TIMESTAMP(6)"
@@ -558,7 +571,10 @@ insertSql' t cols idcol _ = ISRInsertGet doInsert $ T.pack ("select cast(" ++ ge
         ]
 
 getSeqNameEscaped :: DBName -> String
-getSeqNameEscaped (DBName s) = escapeDBName $ DBName ("seq_" <> s <> "_id")
+getSeqNameEscaped d = escapeDBName $ DBName $ getSeqNameUnescaped d
+
+getSeqNameUnescaped::DBName -> Text
+getSeqNameUnescaped (DBName s) = "seq_" <> s <> "_id"
 
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
 limitOffset oracle12c (limit,offset) hasOrder sql 

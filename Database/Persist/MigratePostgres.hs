@@ -289,10 +289,10 @@ getAddReference table (Column n _nu _ _def _maxLen ref) =
         Just (s, _) -> Just $ AlterColumn table (n, AddReference s)
 
 showColumn :: Column -> String
-showColumn (Column n nu sqlType def _maxLen _ref) = concat
+showColumn c@(Column n nu sqlType def _maxLen _ref) = concat
     [ T.unpack $ escape n
     , " "
-    , showSqlType sqlType
+    , showSqlType sqlType _maxLen
     , " "
     , if nu then "NULL" else "NOT NULL"
     , case def of
@@ -300,19 +300,20 @@ showColumn (Column n nu sqlType def _maxLen _ref) = concat
         Just s -> " DEFAULT " ++ T.unpack s
     ]
 
-showSqlType :: SqlType -> String
-showSqlType SqlString = "VARCHAR"
-showSqlType SqlInt32 = "INT4"
-showSqlType SqlInt64 = "INT8"
-showSqlType SqlReal = "DOUBLE PRECISION"
-showSqlType (SqlNumeric s prec) = "NUMERIC(" ++ show s ++ "," ++ show prec ++ ")"
-showSqlType SqlDay = "DATE"
-showSqlType SqlTime = "TIME"
-showSqlType SqlDayTime = "TIMESTAMP"
-showSqlType SqlDayTimeZoned = "TIMESTAMP WITH TIME ZONE"
-showSqlType SqlBlob = "BYTEA"
-showSqlType SqlBool = "BOOLEAN"
-showSqlType (SqlOther t) = T.unpack t
+showSqlType :: SqlType -> Maybe Integer -> String
+showSqlType SqlString Nothing = "VARCHAR"
+showSqlType SqlString (Just len) = "VARCHAR(" ++ show len ++ ")"
+showSqlType SqlInt32 _ = "INT4"
+showSqlType SqlInt64 _ = "INT8"
+showSqlType SqlReal _ = "DOUBLE PRECISION"
+showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show s ++ "," ++ show prec ++ ")"
+showSqlType SqlDay _ = "DATE"
+showSqlType SqlTime _ = "TIME"
+showSqlType SqlDayTime _ = "TIMESTAMP"
+showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
+showSqlType SqlBlob _ = "BYTEA"
+showSqlType SqlBool _ = "BOOLEAN"
+showSqlType (SqlOther t) _ = T.unpack t
 
 showAlterDb :: AlterDB -> (Bool, Text)
 showAlterDb (AddTable s) = (False, pack s)
@@ -348,7 +349,7 @@ showAlter table (n, Type t) =
         , " ALTER COLUMN "
         , T.unpack $ escape n
         , " TYPE "
-        , showSqlType t
+        , showSqlType t Nothing
         ]
 showAlter table (n, IsNull) =
     concat
