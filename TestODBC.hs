@@ -163,7 +163,7 @@ main = do
   [arg] <- getArgs
   let (dbtype,dsn) = 
        case arg of -- odbc system dsn
-           "d" -> (DB2,"dsn=db2_test")
+           "d" -> (DB2,"dsn=db2_test2")
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
            "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]

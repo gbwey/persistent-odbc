@@ -1,4 +1,13 @@
 {-
+Migrating: ALTER TABLE "test0" ALTER COLUMN "mybool" SET DATA TYPE CHAR(1)
+Migrating: ALTER TABLE "test1" ALTER COLUMN "flag" SET DATA TYPE CHAR(1)
+Migrating: ALTER TABLE "test1" ALTER COLUMN "flag1" SET DATA TYPE CHAR(1)
+Migrating: ALTER TABLE "blog_post" DROP CONSTRAINT "blog_post_author_id_fkey"
+Migrating: ALTER TABLE "xsd" DROP CONSTRAINT "xsd_asmid_fkey"
+Migrating: ALTER TABLE "line" DROP CONSTRAINT "line_xsdid_fkey"
+Migrating: ALTER TABLE "interface" DROP CONSTRAINT "interface_ftypeid_fkey"
+Migrating: ALTER TABLE "testrational" ALTER COLUMN "rat" SET DATA TYPE NUMERIC(20)
+
 aa=[Entity {entityKey = Key {unKey = PersistInt64 1}, entityVal = Testlen {t
 estlenTxt = "txt1", testlenStr = "str1", testlenBs = "627331", testlenMtxt =
  Just "txt1m", testlenMstr = Just "str1m", testlenMbs = Just "6273316D"}},En
@@ -375,7 +384,7 @@ showAlter table (n, Type t) =
         , T.unpack $ escape table
         , " ALTER COLUMN "
         , T.unpack $ escape n
-        , " TYPE "
+        , " SET DATA TYPE "
         , showSqlType t Nothing
         ]
 showAlter table (n, IsNull) =
