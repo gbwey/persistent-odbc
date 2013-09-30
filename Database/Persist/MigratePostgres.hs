@@ -206,6 +206,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         , cNull = y == "YES"
                         , cSqlType = t
                         , cDefault = d''
+                        , cDefaultConstraintName = Nothing
                         , cMaxLen = Nothing
                         , cReference = ref
                         }
@@ -230,6 +231,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
+            PersistByteString bs -> Right $ Just $ TE.decodeUtf8 bs
             _ -> Left $ pack $ "Invalid default column: " ++ show d
     getType "int4"        = Right $ SqlInt32
     getType "int8"        = Right $ SqlInt64
@@ -251,10 +253,10 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def _maxLen ref) cols =
+findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
-        Column _ isNull' sqltype' def' _maxLen' ref':_ ->
+        Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
             let refDrop Nothing = []
                 refDrop (Just (_, cname)) = [(name, DropReference cname)]
                 refAdd Nothing = []
@@ -283,13 +285,13 @@ findAlters col@(Column name isNull sqltype def _maxLen ref) cols =
 
 -- | Get the references to be added to a table for the given column.
 getAddReference :: DBName -> Column -> Maybe AlterDB
-getAddReference table (Column n _nu _ _def _maxLen ref) =
+getAddReference table (Column n _nu _ _def _defConstraintName _maxLen ref) =
     case ref of
         Nothing -> Nothing
         Just (s, _) -> Just $ AlterColumn table (n, AddReference s)
 
 showColumn :: Column -> String
-showColumn c@(Column n nu sqlType def _maxLen _ref) = concat
+showColumn c@(Column n nu sqlType def defConstraintName _maxLen _ref) = concat
     [ T.unpack $ escape n
     , " "
     , showSqlType sqlType _maxLen

@@ -1,3 +1,59 @@
+-- have to fix 
+-- mssql creates default each time but if already there freaks out
+{-
+select info.TABLE_NAME,info.IS_NULLABLE,info.DATA_TYPE,info.COLUMN_DEFAULT,OBJECT_NAME(con.constid) AS ConstraintName
+FROM sys.columns col 
+inner join sys.tables tab on col.object_id=tab.object_id 
+join INFORMATION_SCHEMA.COLUMNS info on info.table_name='testlen' 
+and tab.name=info.table_name 
+and col.name=info.COLUMN_NAME  
+LEFT OUTER JOIN sysconstraints con
+ON con.constid=col.default_object_id
+
+
+select * FROM sys.columns col 
+inner join sys.tables tab on col.object_id=tab.object_id 
+join INFORMATION_SCHEMA.COLUMNS info on info.table_name='testlen' 
+and tab.name=info.table_name 
+and col.name=info.COLUMN_NAME  
+
+
+SELECT col.*,tab.*,col.name,OBJECT_NAME(con.constid) AS ConstraintName,object_definition(col.default_object_id) AS definition
+FROM sys.columns col
+inner join INFORMATION_SCHEMA.COLUMNS info
+on col.object_id=tab.object_id and info.table_name='testlen'
+inner join sys.tables tab
+on col.object_id=tab.object_id and info.table_name=tab.name
+LEFT OUTER JOIN sysconstraints con
+ON con.constid=col.default_object_id
+ 
+
+-- sys.tables assures we are in the same schema
+SELECT col.*,col.name,OBJECT_NAME(con.constid) AS ConstraintName,object_definition(col.default_object_id) AS definition
+FROM sys.columns col
+inner join sys.tables tab
+on col.object_id=tab.object_id
+LEFT OUTER JOIN sysconstraints con
+ON con.constid=col.default_object_id
+ where object_name(col.object_id)='testlen'
+ 
+ 
+SELECT OBJECT_NAME(con.constid) AS ConstraintName,col.name,object_definition(col.default_object_id) AS definition
+FROM sysconstraints con,sys.columns col
+where con.id=col.object_id
+and object_name(con.id)='testlen'
+and col.default_object_id=con.constid
+
+ConstraintName              name  definition
+DF__testlen__txt__0D99FE17  txt   ('xx11')
+dt_a                        mtxt  ('xx11')
+-}
+-- no errors but have to fix them at some point
+
+-- postgres creates default each time but no errors [[handles drop fine when u remove default]]
+-- mysql creates default each time but no errors [[handles drop fine when u remove default]]
+-- oracle has no problem and doesnt create it each time [[doesnt handle drop well cos the default always exists even tho value is now null:ALTER TABLE "testlen" MODIFY "txt" DEFAULT NULL]]
+
 {-# LANGUAGE QuasiQuotes, TemplateHaskell, TypeFamilies, OverloadedStrings #-}
 {-# LANGUAGE GADTs, FlexibleContexts #-}
 {-# LANGUAGE EmptyDataDecls    #-}
@@ -142,7 +198,7 @@ Testblob3
   deriving Show
 
 Testlen
-  txt  Text maxlen=5 default='xx11'
+  txt  Text maxlen=5  -- default='xx11'
   str  String maxlen=5
   bs   ByteString maxlen=5
   mtxt Text Maybe maxlen=5
