@@ -52,7 +52,8 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _) -> do
         let addTable = AddTable $ concat
-                [ "CREATE TABLE "
+                            -- Lower case e: see Database.Persist.Sql.Migration
+                [ "CREATE TABLe "
                 , escapeDBName name
                 , "("
                 , escapeDBName $ entityID val
@@ -161,7 +162,6 @@ getColumns getter def = do
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.
-    -- gb removed \WHERE TABLE_SCHEMA = ? \
     stmtCntrs <- getter "SELECT CONSTRAINT_NAME, \
                                \COLUMN_NAME \
                         \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \
@@ -222,9 +222,6 @@ getColumn getter tname [ PersistByteString cname
       type_ <- parseType type'
 
       -- Foreign key (if any)
-      -- gb removed \WHERE TABLE_SCHEMA = ? \
-      -- gb removed \AND REFERENCED_TABLE_SCHEMA = ? \
-      -- gb need to pass in the schema at some point:at the moment use a built in function so we restrict the search to current schema
       stmt <- lift $ getter "SELECT REFERENCED_TABLE_NAME, \
                                    \CONSTRAINT_NAME \
                             \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE \

@@ -56,7 +56,8 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _, _) -> do
         let addTable = AddTable $ concat
-                [ "CREATE TABLE "
+                            -- Lower case e: see Database.Persist.Sql.Migration
+                [ "CREATE TABLe "
                 , escapeDBName name
                 , "("
                 , escapeDBName $ entityID val
@@ -389,10 +390,10 @@ findAlters allDefs col@(Column name isNull type_ def _defConstraintName _maxLen 
                , filter ((name /=) . cName) cols )
 
 cmpdef::Maybe Text -> Maybe Text -> Bool
-cmpdef Nothing Nothing = True
-cmpdef (Just def) (Just def') = def==def'
+--cmpdef Nothing Nothing = True
+cmpdef = (==)
 --cmpdef (Just def) (Just def') = trace ("def[" ++ show (T.concatMap (T.pack . show . ord) def) ++ "] def'[" ++ show (T.concatMap (T.pack . show . ord) def') ++ "]") $ def == def' 
-cmpdef _ _ = False
+--cmpdef _ _ = False
 
 tpcheck :: SqlType -> SqlType -> Bool
 tpcheck SqlInt32 SqlInt64 = True

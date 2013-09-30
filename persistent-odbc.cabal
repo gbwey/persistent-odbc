@@ -28,6 +28,7 @@ library
                       , Database.Persist.MigrateMySQL
                       , Database.Persist.MigrateMSSQL
                       , Database.Persist.MigrateOracle
+                      , Database.Persist.MigrateDB2
 --    if flag(test)
 --                    exposed-modules:
                          , TestODBC

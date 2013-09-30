@@ -5,7 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses, ScopedTypeVariables #-}
 -- | An ODBC backend for persistent.
-module Database.Persist.MigratePostgres
+module Database.Persist.MigrateDB2
     ( getMigrationStrategy 
     ) where
 
@@ -29,15 +29,15 @@ import Database.Persist.ODBCTypes
 import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
-getMigrationStrategy dbtype@Postgres {} = 
-     MigrationStrategy
-                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT ALL" 
+getMigrationStrategy dbtype@DB2 {} = 
+     MigrationStrategy -- gb fix this:what is the limit:otherwise use a custom decorator
+                          { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT 99999999" 
                            ,dbmsMigrate=migrate' 
                            ,dbmsInsertSql=insertSql' 
                            ,dbmsEscape=escape 
                            ,dbmsType=dbtype
                           } 
-getMigrationStrategy dbtype = error $ "Postgres: calling with invalid dbtype " ++ show dbtype
+getMigrationStrategy dbtype = error $ "DB2: calling with invalid dbtype " ++ show dbtype
                      
 migrate' :: [EntityDef a]
          -> (Text -> IO Statement)
@@ -56,12 +56,15 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                 then do
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
-                            [ "CREATE TABLe "
+                            [ "CREATe TABLE "
                             , T.unpack $ escape name
                             , "("
                             , T.unpack $ escape $ entityID val
-                            , " SERIAL PRIMARY KEY UNIQUE"
+                            , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) "
                             , concatMap (\x -> ',' : showColumn x) $ fst new
+                            , " ,PRIMARY KEY("
+                            , T.unpack $ escape $ entityID val
+                            , ")"
                             , ")"
                             ]
                     let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -95,30 +98,33 @@ getColumns :: (Text -> IO Statement)
            -> IO [Either Text (Either Column (DBName, [DBName]))]
 getColumns getter def = do
     let sqlv=concat ["SELECT "
-                          ,"column_name "
-                          ,",is_nullable "
-                          ,",udt_name "
-                          ,",column_default "
-                          ,",numeric_precision "
-                          ,",numeric_scale "
-                          ,"FROM information_schema.columns "
-                          ,"WHERE table_catalog=current_database() "
-                          ,"AND table_name=? "
-                          ,"AND column_name <> ?"]
+                          ,"colname column_name "
+                          ,",nulls is_nullable "
+                          ,",typename "
+                          ,",default column_default "
+                          ,",length "
+                          ,",scale "
+                          ,"FROM syscat.columns "
+                          ,"WHERE tabschema=current_schema "
+                          ,"AND tabname=? "
+                          ,"AND colname <> ?"]
   
     stmt <- getter $ pack sqlv
     let vals =
             [ PersistText $ unDBName $ entityDB def
             , PersistText $ unDBName $ entityID def
             ]
+
     cs <- runResourceT $ stmtQuery stmt vals $$ helper
     let sqlc=concat ["SELECT "
-                          ,"constraint_name "
-                          ,",column_name "
-                          ,"FROM information_schema.constraint_column_usage "
-                          ,"WHERE table_catalog=current_database() "
-                          ,"AND table_name=? "
-                          ,"AND column_name <> ? "
+                          ,"a.constname constraint_name "
+                          ,",a.colname column_name "
+                          ,"FROM SYSCAT.KEYCOLUSE A, SYSCAT.TABCONST B "
+                          ,"WHERE A.CONSTNAME=B.CONSTNAME "
+                          ,"AND a.tabschema=current_schema "
+                          ,"AND b.tabschema=a.tabschema "
+                          ,"AND a.tabname=? "
+                          ,"AND a.colname <> ? "
                           ,"ORDER BY constraint_name, column_name"]
 
     stmt' <- getter $ pack sqlc
@@ -134,7 +140,7 @@ getColumns getter def = do
                 getAll (front . (:) (con, col))
             Just [PersistByteString con, PersistByteString col] -> do
                 getAll (front . (:) (TE.decodeUtf8 con, TE.decodeUtf8 col)) 
-            Just xx -> error ("oops: unexpected datatype returned odbc postgres  xx="++show xx) -- $ getAll front -- FIXME error message?
+            Just xx -> error ("oops: unexpected datatype returned odbc db2  xx="++show xx) -- $ getAll front -- FIXME error message?
     helperU = do
         rows <- getAll id
         return $ map (Right . Right . (DBName . fst . head &&& map (DBName . snd)))
@@ -196,14 +202,14 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     case d' of
         Left s -> return $ Left s
         Right d'' ->
-            case getType (TE.decodeUtf8 z) of
+            case getType (TE.decodeUtf8 z) d of
                 Left s -> return $ Left s
                 Right t -> do
                     let cname = DBName $ TE.decodeUtf8 x
                     ref <- getRef cname
                     return $ Right Column
                         { cName = cname
-                        , cNull = y == "YES"
+                        , cNull = y == "Y"
                         , cSqlType = t
                         , cDefault = d''
                         , cDefaultConstraintName = Nothing
@@ -212,14 +218,15 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         }
   where
     getRef cname = do
-        let sql = concat
-                [ "SELECT COUNT(*) FROM "
-                , "information_schema.table_constraints "
-                , "WHERE table_catalog=current_database()"
-                , "AND table_name=?"
-                , "AND constraint_type='FOREIGN KEY' "
-                , "AND constraint_name=?"
-                ]
+        let sql=concat ["SELECT count(*) "
+                       ,"FROM SYSCAT.KEYCOLUSE A, SYSCAT.TABCONST B "
+                       ,"WHERE A.CONSTNAME=B.CONSTNAME "
+                       ,"AND a.tabname=? "
+                       ,"AND a.constname=? "
+                       ,"AND b.type='F' "
+                       ,"AND a.tabschema=current_schema "
+                       ,"AND b.tabschema=a.tabschema "
+                       ]
         let ref = refName tname cname
         stmt <- getter $ pack sql
         runResourceT $ stmtQuery stmt
@@ -233,19 +240,19 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
             PersistText t -> Right $ Just t
             PersistByteString bs -> Right $ Just $ TE.decodeUtf8 bs
             _ -> Left $ pack $ "Invalid default column: " ++ show d
-    getType "int4"        = Right $ SqlInt32
-    getType "int8"        = Right $ SqlInt64
-    getType "varchar"     = Right $ SqlString
-    getType "date"        = Right $ SqlDay
-    getType "bool"        = Right $ SqlBool
-    getType "timestamp"   = Right $ SqlDayTime
-    getType "timestamptz" = Right $ SqlDayTimeZoned
-    getType "float4"      = Right $ SqlReal
-    getType "float8"      = Right $ SqlReal
-    getType "bytea"       = Right $ SqlBlob
-    getType "time"        = Right $ SqlTime
-    getType "numeric"     = getNumeric npre nscl
-    getType a             = Right $ SqlOther a
+    getType "SMALLINT"    _ = Right $ SqlInt32
+    getType "BIGINT"      _ = Right $ SqlInt64
+    getType "VARCHAR"     _ = Right $ SqlString
+    getType "DATE"        _ = Right $ SqlDay
+    getType "CHAR"        _ = Right $ SqlBool
+    getType "TIMESTAMP"   _ = Right $ SqlDayTime
+    getType "TIMESTAMP WITH TIMEZONE" _ = Right $ SqlDayTimeZoned
+    getType "FLOAT"       _ = Right $ SqlReal
+    getType "DOUBLE"      _ = Right $ SqlReal
+    getType "BLOB"        _ = Right $ SqlBlob
+    getType "TIME"        _ = Right $ SqlTime
+    getType "NUMERIC"     _ = getNumeric npre nscl
+    getType a             _ = Right $ SqlOther a
 
     getNumeric (PersistInt64 a) (PersistInt64 b) = Right $ SqlNumeric (fromIntegral a) (fromIntegral b)
     getNumeric a b = Left $ pack $ "Can not get numeric field precision, got: " ++ show a ++ " and " ++ show b ++ " as precision and scale"
@@ -312,20 +319,19 @@ showColumn c@(Column n nu sqlType def defConstraintName _maxLen _ref) = concat
         Nothing -> ""
         Just s -> " DEFAULT " ++ T.unpack s
     ]
-
 showSqlType :: SqlType -> Maybe Integer -> String
-showSqlType SqlString Nothing = "VARCHAR"
+showSqlType SqlString Nothing = "VARCHAR(1000)"
 showSqlType SqlString (Just len) = "VARCHAR(" ++ show len ++ ")"
-showSqlType SqlInt32 _ = "INT4"
-showSqlType SqlInt64 _ = "INT8"
+showSqlType SqlInt32 _ = "SMALLINT"
+showSqlType SqlInt64 _ = "BIGINT"
 showSqlType SqlReal _ = "DOUBLE PRECISION"
-showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show s ++ "," ++ show prec ++ ")"
+showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show prec ++ ")"
 showSqlType SqlDay _ = "DATE"
 showSqlType SqlTime _ = "TIME"
 showSqlType SqlDayTime _ = "TIMESTAMP"
 showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
-showSqlType SqlBlob _ = "BYTEA"
-showSqlType SqlBool _ = "BOOLEAN"
+showSqlType SqlBlob _ = "BLOB"
+showSqlType SqlBool _ = "CHAR(1)"
 showSqlType (SqlOther t) _ = T.unpack t
 
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -455,13 +461,18 @@ udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
-insertSql' t cols id' _ = ISRSingle $ pack $ concat
-    [ "INSERT INTO "
-    , T.unpack $ escape t
-    , "("
-    , intercalate "," $ map (T.unpack . escape . fieldDB) cols
-    , ") VALUES("
-    , intercalate "," (map (const "?") cols)
-    , ") RETURNING "
-    , T.unpack $ escape id'
-    ]
+insertSql' t cols id' vals = 
+    ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
+    where
+      doInsert = pack $ concat
+        [ "INSERT INTO "
+        , T.unpack $ escape t
+        , "("
+        , intercalate "," $ map (T.unpack . escape . fieldDB) cols
+        , ") VALUES("
+        , intercalate "," $ zipWith doValue cols vals
+        , ")"
+        ]
+      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = trace "\n\nin blob with a value\n\n" "blob(?)"
+      doValue _ _ = "?"

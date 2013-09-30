@@ -60,7 +60,8 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _) -> do
         let addTable = AddTable $ concat
-                [ "CREATE TABLE "
+                            -- Lower case e: see Database.Persist.Sql.Migration
+                [ "CREATE TABLe "
                 , escapeDBName name
                 , "("
                 , escapeDBName $ entityID val

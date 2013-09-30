@@ -21,6 +21,7 @@ import qualified Database.Persist.MigratePostgres as PG
 import qualified Database.Persist.MigrateMySQL as MYSQL
 import qualified Database.Persist.MigrateMSSQL as MSSQL
 import qualified Database.Persist.MigrateOracle as ORACLE
+import qualified Database.Persist.MigrateDB2 as DB2
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -116,7 +117,7 @@ getMigrationStrategy dbtype =
     MySQL     -> MYSQL.getMigrationStrategy dbtype
     MSSQL {}  -> MSSQL.getMigrationStrategy dbtype
     Oracle {} -> ORACLE.getMigrationStrategy dbtype
-
+    DB2 {}    -> DB2.getMigrationStrategy dbtype
 
 prepare' :: O.Connection -> Text -> IO Statement
 prepare' conn sql = do

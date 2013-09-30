@@ -163,6 +163,7 @@ main = do
   [arg] <- getArgs
   let (dbtype,dsn) = 
        case arg of -- odbc system dsn
+           "d" -> (DB2,"dsn=db2_test")
            "p" -> (Postgres,"dsn=pg_gbtest")
            "m" -> (MySQL,"dsn=mysql_test")
            "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]
@@ -170,7 +171,7 @@ main = do
            -- "so" -> (MSSQL False,"dsn=mssql_test2012; Trusted Connection=True") -- use older driver [this is junk]
            "o" -> (Oracle False,"dsn=oracle_testdb") -- pre oracle 12c [no support for limit and offset] 
            "on" -> (Oracle True,"dsn=oracle_testdb") -- >= oracle 12c [full limit and offset support]
-           xs -> error $ "unknown option:choose p m s so o on found[" ++ xs ++ "]"
+           xs -> error $ "unknown option:choose p m s so o on d found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
     liftIO $ putStrLn "\nbefore migration\n"
@@ -328,9 +329,10 @@ test1 dbtype = do
 
     aa <- selectList ([]::[Filter Persony]) []
     unless (length aa == 4) $ error $ "wrong number of Person rows " ++ show aa
-
+    liftIO $ putStrLn $ "persony " ++ show aa
     let sql = case dbtype of 
                 Oracle {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
+                DB2 {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
                 _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
@@ -402,7 +404,8 @@ test5 dbtype = do
     liftIO $ putStrLn "\n*** in test5\n"
     a1 <- insert $ Testother (Just "abc") "zzzz" 
     case dbtype of 
-      MSSQL {} -> liftIO $ putStrLn "mssql insert multiple blob fields with a null fails"
+      MSSQL {} -> liftIO $ putStrLn $ show dbtype ++ " insert multiple blob fields with a null fails"
+      DB2 {} -> liftIO $ putStrLn $ show dbtype ++ " insert multiple blob fields with a null fails"
       _ -> do
               a2 <- insert $ Testother Nothing "aaa" 
               liftIO $ putStrLn $ "a2=" ++ show a2
@@ -410,22 +413,26 @@ test5 dbtype = do
     a4 <- insert $ Testother (Just "ddd") "mmm" 
     xs <- case dbtype of 
             Oracle {} -> selectList ([]::[Filter Testother]) [] -- cannot sort blobs in oracle
+            DB2 {} -> selectList ([]::[Filter Testother]) [] -- cannot sort blobs in db2?
             _ -> selectList [] [Desc TestotherBs1] 
     liftIO $ putStrLn $ "xs=" ++ show xs
     case dbtype of 
       Oracle {} -> return ()
+      DB2 {} -> return ()
       _ -> do
               ys <- selectList [] [Desc TestotherBs2] 
               liftIO $ putStrLn $ "ys=" ++ show ys
     
     aa <- selectList ([]::[Filter Testother]) []
     case dbtype of
-      MSSQL {} -> unless (length aa == 3) $ error $ "mssql:wrong number of Testother rows " ++ show aa
+      MSSQL {} -> unless (length aa == 3) $ error $ show dbtype ++ " :wrong number of Testother rows " ++ show aa
+      DB2 {} -> unless (length aa == 3) $ error $ show dbtype ++ " :wrong number of Testother rows " ++ show aa
       _ -> unless (length aa == 4) $ error $ "wrong number of Testother rows " ++ show aa
       
     
 test6::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test6  = do
+    liftIO $ putStrLn "\n*** in test6\n"
     r1 <- insert $ Testrational (4%6)
     r2 <- insert $ Testrational (13 % 14)
     liftIO $ putStrLn $ "r1=" ++ show r1
@@ -443,6 +450,7 @@ test6  = do
     
 test7::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test7 = do
+    liftIO $ putStrLn "\n*** in test7\n"
     xs <- selectList [] [Desc LinePos, LimitTo 2, OffsetBy 3] 
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=3 xs=" ++ show xs
     xs <- selectList [] [Desc LinePos, LimitTo 2] 
@@ -452,6 +460,7 @@ test7 = do
 
 test8::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test8 = do
+    liftIO $ putStrLn "\n*** in test8\n"
     xs <- select $ 
              from $ \ln -> do
                 where_ (ln ^. LinePos E.>=. E.val 0)
@@ -463,6 +472,7 @@ test8 = do
 
 test9::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test9 = do
+    liftIO $ putStrLn "\n*** in test9\n"
     xs <- selectList [] [Desc LinePos, LimitTo 2] 
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=2,offset=0 xs=" ++ show xs
     xs <- selectList [] [Desc LinePos, LimitTo 4] 
@@ -487,14 +497,15 @@ test10 dbtype = do
 
     aa <- selectList ([]::[Filter Testblob3]) []
     case dbtype of
-      Oracle {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testblob3 rows " ++ show aa
+      Oracle {} -> unless (length aa == 2) $ error $ show dbtype ++ " :wrong number of Testblob3 rows " ++ show aa
       _ -> unless (length aa == 3) $ error $ "wrong number of Testblob3 rows " ++ show aa
 
 test11::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test11 dbtype = do
     liftIO $ putStrLn "\n*** in test11\n"
     case dbtype of 
-       MSSQL {} -> liftIO $ putStrLn "mssql only:inserting null in a blob not supported so skipping"
+       MSSQL {} -> liftIO $ putStrLn $ show dbtype ++ ":inserting null in a blob not supported so skipping"
+       DB2 {} -> liftIO $ putStrLn $ show dbtype ++ ":inserting null in a blob not supported so skipping"
        _ -> do
               _ <- insert $ Testblob Nothing  
               return ()
@@ -507,7 +518,8 @@ test11 dbtype = do
 
     aa <- selectList ([]::[Filter Testblob]) []
     case dbtype of
-      MSSQL {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testblob rows " ++ show aa
+      MSSQL {} -> unless (length aa == 2) $ error $ show dbtype ++ " :wrong number of Testblob rows " ++ show aa
+      DB2 {} -> unless (length aa == 2) $ error $ show dbtype ++ " :wrong number of Testblob rows " ++ show aa
       _ -> unless (length aa == 3) $ error $ "wrong number of Testblob rows " ++ show aa
 
 test12::DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
@@ -518,7 +530,7 @@ test12 dbtype = do
 
     aa <- selectList ([]::[Filter Testlen]) []
     case dbtype of
-      -- Oracle {} -> unless (length aa == 2) $ error $ "mssql:wrong number of Testlen rows " ++ show aa
+      -- Oracle {} -> unless (length aa == 2) $ error $ show dbtype ++ " :wrong number of Testlen rows " ++ show aa
       _ -> unless (length aa == 2) $ error $ "wrong number of Testlen rows " ++ show aa
 
     liftIO $ putStrLn $ "aa=" ++ show aa
@@ -532,16 +544,29 @@ limitoffset dbtype =
     
 main2::IO ()
 main2 = do
-  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+--  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+  let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
-
   putStrLn "\n1\n"
-  stmt1 <- H.prepare conn "select * from testblob"
+  stmt1 <- H.prepare conn "select * from test93"
   putStrLn "\n2\n"
   results <- H.fetchAllRowsAL stmt1
   putStrLn "\n3\n"
   mapM_ print results
   putStrLn "\n4\n"
+
+  putStrLn "\na\n"
+  --stmt1 <- H.prepare conn "create table test93 (bs1 blob)"
+  --putStrLn "\nb\n"
+  --vals <- H.execute stmt1 [] 
+  --putStrLn "\nc\n"
+  stmt1 <- H.prepare conn "insert into test93 values(blob(?))"
+  putStrLn "\nd\n"
+  vals <- H.execute stmt1 [H.SqlByteString "hello world"] 
+  putStrLn "\ne\n"
+  _ <- H.commit conn 
+  error "we are done!!"
+
   
 --  a <- H.quickQuery' conn "select * from testblob" []  -- hangs here in both mssql drivers [not all the time]
 --  putStrLn $ "\n5\n"
