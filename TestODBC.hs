@@ -1,14 +1,15 @@
 -- have to fix 
 -- mssql creates default each time but if already there freaks out
 {-
-select info.TABLE_NAME,info.IS_NULLABLE,info.DATA_TYPE,info.COLUMN_DEFAULT,OBJECT_NAME(con.constid) AS ConstraintName
-FROM sys.columns col 
-inner join sys.tables tab on col.object_id=tab.object_id 
-join INFORMATION_SCHEMA.COLUMNS info on info.table_name='testlen' 
-and tab.name=info.table_name 
-and col.name=info.COLUMN_NAME  
-LEFT OUTER JOIN sysconstraints con
-ON con.constid=col.default_object_id
+"select info.TABLE_NAME,info.IS_NULLABLE,info.DATA_TYPE,info.COLUMN_DEFAULT,OBJECT_NAME(con.constid) AS ConstraintName "
+,"FROM sys.columns col "
+,"inner join sys.tables tab on col.object_id=tab.object_id "
+,"join INFORMATION_SCHEMA.COLUMNS info on info.table_name=? "
+,"and tab.name=info.table_name "
+,"and col.name=info.COLUMN_NAME  "
+,"LEFT OUTER JOIN sysconstraints con "
+,"ON con.constid=col.default_object_id "
+]
 
 
 select * FROM sys.columns col 
@@ -198,7 +199,7 @@ Testblob3
   deriving Show
 
 Testlen
-  txt  Text maxlen=5  -- default='xx11'
+  txt  Text maxlen=5 -- default='xx11'
   str  String maxlen=5
   bs   ByteString maxlen=5
   mtxt Text Maybe maxlen=5

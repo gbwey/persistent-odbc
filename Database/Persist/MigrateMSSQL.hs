@@ -112,7 +112,7 @@ data AlterColumn = Change Column
                  | Add' Column
                  | Drop
                  | Default String
-                 | NoDefault
+                 | NoDefault DBName
                  | Update' String
                  | AddReference DBName DBName
                  | DropReference DBName
@@ -168,7 +168,7 @@ getColumns getter def = do
                     ," LEFT OUTER JOIN sysconstraints con "
                     ," ON con.constid=col.default_object_id "
                     ]     
-    liftIO $ putStrLn $ "sql=" ++ show sql                
+    --liftIO $ putStrLn $ "sql=" ++ show sql                
     stmtClmns <- getter sql                     
     inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
@@ -218,6 +218,7 @@ getColumn getter tname [ PersistByteString cname
                                    , defaultConstraintName'] =
     fmap (either (Left . pack) Right) $
     runErrorT $ do
+      --liftIO $ putStrLn $ "getColumn " ++ show tname ++ " defaultConstraintName'=" ++ show defaultConstraintName'                               
       -- Default value
       default_ <- case default' of
                     PersistNull   -> return Nothing
@@ -387,11 +388,18 @@ findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen r
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
-                       | otherwise   = case def of
-                                         Nothing -> [(name, NoDefault)]
-                                         Just s -> [(name, Default $ T.unpack s)]
+                       | otherwise   = -- trace ("findAlters " ++ show name ++ " def=" ++ show def ++ " def'=" ++ show def' ++ " defConstraintName=" ++ show defConstraintName++" defConstraintName'=" ++ show defConstraintName') $ 
+                                        case def of
+                                         Nothing -> [(name, NoDefault $ maybe (error $ "expected a constraint name col="++show name) id defConstraintName')]
+                                         Just s -> if cmpdef def def' then [] else [(name, Default $ T.unpack s)]
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
+
+cmpdef::Maybe Text -> Maybe Text -> Bool
+cmpdef Nothing Nothing = True
+cmpdef (Just def) (Just def') = "(" <> def <> ")" == def'
+cmdef _ _ = False
+
 
 tpcheck :: SqlType -> SqlType -> Bool
 tpcheck (SqlNumeric _ _) SqlReal = True
@@ -404,7 +412,8 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def defConstraintName maxLen ref) = concat
+showColumn (Column n nu t def defConstraintName maxLen ref) = -- trace ("showColumn " ++ show defConstraintName) $ 
+    concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -500,13 +509,12 @@ showAlter table (n, Default s) =
     , " FOR "
     , escapeDBName n
     ]
-showAlter table (n, NoDefault) =
+showAlter table (n, NoDefault defConstraintName) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " ALTER COLUMN "
-    , escapeDBName n
-    , " DROP DEFAULT"
+    , " DROP CONSTRAINT "
+    , escapeDBName defConstraintName
     ]
 showAlter table (n, Update' s) =
     concat
@@ -558,7 +566,8 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
 -- | SQL code to be executed when inserting an entity.
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
 -- should use scope_identity() but doesnt work :gives null
-insertSql' t cols _ vals = trace ("doInsert=" ++ show doInsert ++ " cols=" ++ show cols ++ " vals=" ++ show vals) $ ISRInsertGet doInsert "SELECT @@identity"
+insertSql' t cols _ vals = -- trace ("doInsert=" ++ show doInsert ++ " cols=" ++ show cols ++ " vals=" ++ show vals) $ 
+    ISRInsertGet doInsert "SELECT @@identity"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
