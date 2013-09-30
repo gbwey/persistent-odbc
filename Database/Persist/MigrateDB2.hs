@@ -1,3 +1,11 @@
+{-
+aa=[Entity {entityKey = Key {unKey = PersistInt64 1}, entityVal = Testlen {t
+estlenTxt = "txt1", testlenStr = "str1", testlenBs = "627331", testlenMtxt =
+ Just "txt1m", testlenMstr = Just "str1m", testlenMbs = Just "6273316D"}},En
+tity {entityKey = Key {unKey = PersistInt64 2}, entityVal = Testlen {testlen
+Txt = "txt2", testlenStr = "str2", testlenBs = "627332", testlenMtxt = Just
+"aaaa", testlenMstr = Just "str2m", testlenMbs = Just "6273326D"}}]
+-}
 {-# LANGUAGE EmptyDataDecls    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}

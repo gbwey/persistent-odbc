@@ -6,7 +6,7 @@ throw [HDBC-odbc](http://hackage.haskell.org/package/hdbc-odbc).
 Thanks to Dmitry Olshansky at https://github.com/odr/persistent-odbc/
 for doing the initial hookup to hdbc-odbc.
 
-Supports Postgres, MySql, MS Sql Server and Oracle.
+Supports Postgres, MySql, MS Sql Server, Oracle and DB2.
 
 see TestODBC.hs for usage and tests.
 
@@ -31,6 +31,7 @@ see TestODBC.hs for usage and tests.
     :main on [[test with oracle >=12c]]
     :main p  [[test with postgres]]
     :main m  [[test with mysql]]
+    :main d  [[test with db2]]
 
 ####Limit and Offset in Ms Sql Server and Oracle
 --------------------------------------------
@@ -56,3 +57,8 @@ treats empty string as a null (oracle thing)
 ####Oracle and sorting blobs
 ------------------------
 cannot sort on a blob field (oracle thing)
+
+####DB2 and Blobs
+-----------------------
+blobs don't support nulls (both insert) in this version of persistent-odbc (also doesnt work in hdbc-odbc)
+select returns the blob values as hexstrings at the moment
