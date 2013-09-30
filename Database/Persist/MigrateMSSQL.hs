@@ -398,7 +398,7 @@ findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen r
 cmpdef::Maybe Text -> Maybe Text -> Bool
 cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') = "(" <> def <> ")" == def'
-cmdef _ _ = False
+cmpdef _ _ = False
 
 
 tpcheck :: SqlType -> SqlType -> Bool

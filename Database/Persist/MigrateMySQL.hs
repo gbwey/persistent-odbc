@@ -15,6 +15,7 @@ import Data.Either (partitionEithers)
 import Data.Function (on)
 import Data.List (find, intercalate, sort, groupBy)
 import Data.Text (Text, pack)
+import Data.Monoid ((<>))
 
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -360,12 +361,19 @@ findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen r
                 modType | tpcheck type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
-                modDef | def == def' = []
-                       | otherwise   = case def of
+                modDef | cmpdef def def' = []
+                       | otherwise   = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                                       case def of
                                          Nothing -> [(name, NoDefault)]
                                          Just s -> [(name, Default $ T.unpack s)]
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
+
+
+cmpdef::Maybe Text -> Maybe Text -> Bool
+cmpdef Nothing Nothing = True
+cmpdef (Just def) (Just def') = def == "'" <> def' <> "'"
+cmpdef _ _ = False
 
 tpcheck :: SqlType -> SqlType -> Bool
 tpcheck SqlDayTime SqlString = True

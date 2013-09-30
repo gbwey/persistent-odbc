@@ -148,7 +148,7 @@ Testblob3
   deriving Show
 
 Testlen
-  txt  Text maxlen=5 -- default='xx11'
+  txt  Text maxlen=5 -- default='xx12'
   str  String maxlen=5
   bs   ByteString maxlen=5
   mtxt Text Maybe maxlen=5

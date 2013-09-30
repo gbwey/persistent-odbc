@@ -23,6 +23,8 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+import Debug.Trace
+--import Data.Char
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Oracle { oracle12c=ok} = 
@@ -378,12 +380,19 @@ findAlters allDefs col@(Column name isNull type_ def _defConstraintName _maxLen 
                 modType | tpcheck type_ type_' && isNull == isNull' = []
                         | otherwise = [(name, Change col)]
                 -- Default value
-                modDef | def == def' = []
-                       | otherwise   = case def of
+                modDef | cmpdef def def' = []
+                       | otherwise   = trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                                       case def of
                                          Nothing -> [(name, NoDefault)]
                                          Just s -> [(name, Default $ T.unpack s)]
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
+
+cmpdef::Maybe Text -> Maybe Text -> Bool
+cmpdef Nothing Nothing = True
+cmpdef (Just def) (Just def') = def==def'
+--cmpdef (Just def) (Just def') = trace ("def[" ++ show (T.concatMap (T.pack . show . ord) def) ++ "] def'[" ++ show (T.concatMap (T.pack . show . ord) def') ++ "]") $ def == def' 
+cmpdef _ _ = False
 
 tpcheck :: SqlType -> SqlType -> Bool
 tpcheck SqlInt32 SqlInt64 = True

@@ -274,14 +274,24 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
                                  in up [(name, NotNull)]
                             _ -> []
                 modType = if sqltype == sqltype' then [] else [(name, Type sqltype)]
-                modDef =
-                    if def == def'
+                modDef = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                    if cmpdef def def'
                         then []
                         else case def of
                                 Nothing -> [(name, NoDefault)]
                                 Just s -> [(name, Default $ T.unpack s)]
              in (modRef ++ modDef ++ modNull ++ modType,
                  filter (\c -> cName c /= name) cols)
+
+cmpdef::Maybe Text -> Maybe Text -> Bool
+cmpdef Nothing Nothing = True
+cmpdef (Just def) (Just def') | def==def' = True
+                              | otherwise = 
+        let xs=T.dropWhile (/=':') $ T.reverse def'
+            ys=T.drop 2 xs
+            zs=T.reverse ys
+        in trace ("cmpdef xs="++show xs++" ys="++show ys++" zs="++show zs) $ def==zs
+cmpdef _ _ = False
 
 -- | Get the references to be added to a table for the given column.
 getAddReference :: DBName -> Column -> Maybe AlterDB
