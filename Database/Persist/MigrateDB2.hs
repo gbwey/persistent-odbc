@@ -235,14 +235,11 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         }
   where
     getRef cname = do
-        let sql=concat ["SELECT count(*) "
-                       ,"FROM SYSCAT.KEYCOLUSE A, SYSCAT.TABCONST B "
-                       ,"WHERE A.CONSTNAME=B.CONSTNAME "
-                       ,"AND a.tabname=? "
-                       ,"AND a.constname=? "
-                       ,"AND b.type='F' "
-                       ,"AND a.tabschema=current_schema "
-                       ,"AND b.tabschema=a.tabschema "
+        let sql=concat ["SELECT "
+                       ,"reftbname REFERENCED_TABLE_NAME "
+                       ,"FROM sysibm.sysrels "
+                       ,"WHERE tbname=? "
+                       ,"AND relname=? "
                        ]
         let ref = refName tname cname
         stmt <- getter $ pack sql
@@ -250,8 +247,11 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                      [ PersistText $ unDBName tname
                      , PersistText $ unDBName ref
                      ] $$ do
-            Just [PersistInt64 i] <- CL.head
-            return $ if i == 0 then Nothing else Just (DBName "", ref)
+            hd <- CL.head
+            return $ case hd of
+              Just [PersistByteString bs] -> Just (DBName $ TE.decodeUtf8 bs, ref)
+              Just [PersistText t] -> Just (DBName t, ref)
+              Nothing -> Nothing
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -261,15 +261,16 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     getType "BIGINT"      _ = Right $ SqlInt64
     getType "VARCHAR"     _ = Right $ SqlString
     getType "DATE"        _ = Right $ SqlDay
-    getType "CHAR"        _ = Right $ SqlBool
+    getType "CHARACTER"   _ = Right $ SqlBool
     getType "TIMESTAMP"   _ = Right $ SqlDayTime
     getType "TIMESTAMP WITH TIMEZONE" _ = Right $ SqlDayTimeZoned
     getType "FLOAT"       _ = Right $ SqlReal
     getType "DOUBLE"      _ = Right $ SqlReal
+    getType "DECIMAL"     _ = Right $ SqlReal
     getType "BLOB"        _ = Right $ SqlBlob
     getType "TIME"        _ = Right $ SqlTime
     getType "NUMERIC"     _ = getNumeric npre nscl
-    getType a             _ = Right $ SqlOther a
+    getType a             _ = error $ "what is this type a="++ show a -- Right $ SqlOther a
 
     getNumeric (PersistInt64 a) (PersistInt64 b) = Right $ SqlNumeric (fromIntegral a) (fromIntegral b)
     getNumeric a b = Left $ pack $ "Can not get numeric field precision, got: " ++ show a ++ " and " ++ show b ++ " as precision and scale"
@@ -277,7 +278,7 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
+findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols = -- trace ("findAlters col="++show col ++ " cols="++show cols) $ 
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
@@ -297,8 +298,9 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
                                             Just s -> (:) (name, Update' $ T.unpack s)
                                  in up [(name, NotNull)]
                             _ -> []
-                modType = if sqltype == sqltype' then [] else [(name, Type sqltype)]
-                modDef = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                modType = -- trace ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
+                          if tpcheck sqltype sqltype' then [] else [(name, Type sqltype)]
+                modDef = -- trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                     if cmpdef def def'
                         then []
                         else case def of
@@ -307,12 +309,17 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
              in (modRef ++ modDef ++ modNull ++ modType,
                  filter (\c -> cName c /= name) cols)
 
+tpcheck :: SqlType -> SqlType -> Bool
+tpcheck (SqlNumeric _ _) SqlReal = True -- else will try to migrate rational columns
+tpcheck SqlReal (SqlNumeric _ _) = True
+tpcheck a b = a==b
+
 cmpdef::Maybe Text -> Maybe Text -> Bool
 cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') | def==def' = True
                               | otherwise = 
         let (a,_)=T.breakOnEnd ":" def'
-        in trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
+        in -- trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
            case T.stripSuffix "::" a of
               Just xs -> def==xs
               Nothing -> False
@@ -348,7 +355,9 @@ showSqlType SqlTime _ = "TIME"
 showSqlType SqlDayTime _ = "TIMESTAMP"
 showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
 showSqlType SqlBlob _ = "BLOB"
-showSqlType SqlBool _ = "CHAR(1)"
+showSqlType SqlBool Nothing = "CHARACTER"
+showSqlType SqlBool (Just 1) = "CHARACTER"
+showSqlType SqlBool (Just n) = "CHARACTER(" ++ show n ++ ")"
 showSqlType (SqlOther t) _ = T.unpack t
 
 showAlterDb :: AlterDB -> (Bool, Text)
