@@ -16,6 +16,7 @@ import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import Data.Time (getCurrentTime,UTCTime)
 
@@ -34,6 +35,7 @@ import Database.Esqueleto (select,where_,(^.),from,Value(..))
 import Data.ByteString (ByteString)
 import Data.Ratio
 import Text.Blaze.Html
+import Debug.Trace
 
 share [mkPersist sqlOnlySettings, mkMigrate "migrateAll", mkDeleteCascade sqlOnlySettings] [persistLowerCase|
 Test0 
@@ -161,7 +163,7 @@ main :: IO ()
 main = do
 -- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>
   [arg] <- getArgs
-  let (dbtype,dsn) = 
+  let (dbtype',dsn) = 
        case arg of -- odbc system dsn
            "d" -> (DB2,"dsn=db2_test2")
            "p" -> (Postgres,"dsn=pg_gbtest")
@@ -174,6 +176,9 @@ main = do
            xs -> error $ "unknown option:choose p m s so o on d found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
+    conn <- askSqlConn
+    let dbtype=read $ T.unpack $ connRDBMS conn
+    liftIO $ putStrLn $ "original:" ++ show dbtype' ++ " calculated:" ++ show dbtype
     liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
@@ -536,7 +541,7 @@ test12 dbtype = do
     liftIO $ putStrLn $ "aa=" ++ show aa
 
 limitoffset :: DBType -> Bool
-limitoffset dbtype = 
+limitoffset dbtype = -- trace ("limitoffset dbtype=" ++ show dbtype) $
   case dbtype of 
     Oracle False -> False
     MSSQL False -> False

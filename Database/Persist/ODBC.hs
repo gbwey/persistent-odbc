@@ -89,18 +89,25 @@ open' :: Maybe DBType -> ConnectionString -> IO Connection
 open' mdbtype cstr = 
     O.connectODBC cstr >>= openSimpleConn mdbtype
 
-findDBMS::String -> String -> DBType
-findDBMS driver ver | driver=="Oracle" = Oracle ("12." `L.isPrefixOf` ver)
-                    | "DB2" `L.isPrefixOf` driver = DB2 
-                    | driver=="Microsoft SQL Server" = MSSQL ("12." `L.isPrefixOf` ver)
-                    | driver=="MySQL" = MySQL 
-                    | otherwise = error $ "unknown driver[" ++ driver ++ "]"
+findDBMS::(String, String, String) -> DBType
+findDBMS all@(driver,ver,serverver) 
+    | driver=="Oracle" = Oracle $ getvernum all>=12
+    | "DB2" `L.isPrefixOf` driver = DB2 
+    | driver=="Microsoft SQL Server" = MSSQL $ getvernum all>=11
+    | driver=="MySQL" = MySQL 
+    | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] " ++ show all
+
+getvernum all@(driver, ver, serverver) = 
+      case reads $ takeWhile (/='.') serverver of
+        [(a,"")] -> a
+        xs -> error $ "getvernum of findDBMS:cannot tell the version xs=" ++show xs ++ ":" ++ show all
+
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
 openSimpleConn :: Maybe DBType -> O.Connection -> IO Connection
 openSimpleConn mdbtype conn = do
     let mig=case mdbtype of 
-              Nothing -> getMigrationStrategy $ findDBMS (O.proxiedClientName conn) (O.proxiedClientVer conn)
+              Nothing -> getMigrationStrategy $ findDBMS (O.proxiedClientName conn, O.proxiedClientVer conn, O.dbServerVer conn) 
               Just dbtype -> getMigrationStrategy dbtype
       
     smap <- newIORef Map.empty

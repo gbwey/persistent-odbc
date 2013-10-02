@@ -601,7 +601,7 @@ limitOffset mssql2012 (limit,offset) hasOrder sql
                                     False -> if T.null sql then error "MSSQL: not 2012 so trying to add 'top n' but the sql is empty"
                                               else error $ "MSSQL: not 2012 so trying to add 'top n' but is not a select sql=" ++ T.unpack sql
    | mssql2012 = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql
-   | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql
+   | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql ++ " mssql2012=" ++ show mssql2012 ++ " hasOrder=" ++ show hasOrder
 {-
 limitOffset True (limit,offset) False sql = error "MS SQL Server 2012 requires an order by statement for limit and offset" 
 limitOffset False (limit,offset) _ sql = error "MSSQL does not support limit and offset until MS SQL Server 2012"
