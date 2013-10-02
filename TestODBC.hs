@@ -570,8 +570,8 @@ main2 = do
   putStrLn "\nd\n"
   vals <- H.execute stmt1 [H.SqlByteString "hello world"] 
   putStrLn "\ne\n"
-  _ <- H.commit conn 
-  error "we are done!!"
+--  _ <- H.commit conn 
+--  error "we are done!!"
 
   
 --  a <- H.quickQuery' conn "select * from testblob" []  -- hangs here in both mssql drivers [not all the time]

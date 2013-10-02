@@ -91,16 +91,17 @@ open' mdbtype cstr =
 
 findDBMS::(String, String, String) -> DBType
 findDBMS all@(driver,ver,serverver) 
-    | driver=="Oracle" = Oracle $ getvernum all>=12
+    | driver=="Oracle" = Oracle $ getServerVersionNumber all>=12
     | "DB2" `L.isPrefixOf` driver = DB2 
-    | driver=="Microsoft SQL Server" = MSSQL $ getvernum all>=11
+    | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber all>=11
     | driver=="MySQL" = MySQL 
     | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] " ++ show all
 
-getvernum all@(driver, ver, serverver) = 
+getServerVersionNumber::(String, String, String) -> Integer
+getServerVersionNumber all@(driver, ver, serverver) = 
       case reads $ takeWhile (/='.') serverver of
         [(a,"")] -> a
-        xs -> error $ "getvernum of findDBMS:cannot tell the version xs=" ++show xs ++ ":" ++ show all
+        xs -> error $ "getServerVersionNumber of findDBMS:cannot tell the version xs=" ++show xs ++ ":" ++ show all
 
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
