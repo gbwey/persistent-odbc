@@ -250,8 +250,8 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
             hd <- CL.head
             return $ case hd of
               Just [PersistByteString bs] -> Just (DBName $ TE.decodeUtf8 bs, ref)
-              Just [PersistText t] -> Just (DBName t, ref)
               Nothing -> Nothing
+              xs -> error $ "unknown value returned " ++ show xs ++ " other="++show (tname,cname)
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t

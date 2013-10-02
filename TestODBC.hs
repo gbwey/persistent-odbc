@@ -173,7 +173,7 @@ main = do
            "on" -> (Oracle True,"dsn=oracle_testdb") -- >= oracle 12c [full limit and offset support]
            xs -> error $ "unknown option:choose p m s so o on d found[" ++ xs ++ "]"
 
-  runResourceT $ runNoLoggingT $ withODBCConn dbtype dsn $ runSqlConn $ do
+  runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
     liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
@@ -550,10 +550,11 @@ main2 = do
   putStrLn "\n1\n"
   stmt1 <- H.prepare conn "select * from test93"
   putStrLn "\n2\n"
-  results <- H.fetchAllRowsAL stmt1
+  vals <- H.execute stmt1 [] 
   putStrLn "\n3\n"
-  mapM_ print results
+  results <- H.fetchAllRowsAL stmt1
   putStrLn "\n4\n"
+  mapM_ print results
 
   putStrLn "\na\n"
   --stmt1 <- H.prepare conn "create table test93 (bs1 blob)"
@@ -595,3 +596,161 @@ main2 = do
   H.commit conn
   print vals
         
+
+main3::IO ()
+main3 = do
+  --let connectionString = "dsn=pg_gbtest"
+  --let connectionString = "dsn=mysql_test"
+  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+  --let connectionString = "dsn=oracle_testdb"
+  --let connectionString = "dsn=db2_test2"
+  conn <- H.connectODBC connectionString
+  putStrLn "\n1\n"
+
+  putStrLn $ "drivername=" ++ H.hdbcDriverName conn
+  putStrLn $ "clientver=" ++ H.hdbcClientVer conn
+  putStrLn $ "proxied drivername=" ++ H.proxiedClientName conn
+  putStrLn $ "proxied clientver=" ++ H.proxiedClientVer conn
+  putStrLn $ "serverver=" ++ H.dbServerVer conn
+  let lenfn="len" -- mssql
+  --let lenfn="length"
+  a <- H.describeTable conn "persony"
+  print a
+  stmt <- H.prepare conn ("update \"persony\" set \"name\" = ? where \"id\" >= ?")
+  putStrLn "\n2\n"
+  vals <- H.execute stmt [H.SqlString "dooble and stuff", H.toSql (1::Integer)]
+  print vals
+  putStrLn "\n3\n"
+  stmt <- H.prepare conn ("select \"id\","++lenfn++"(\"name\"),\"name\" from \"persony\"")
+  putStrLn "\n4\n"
+  vals <- H.execute stmt []
+  results <- H.fetchAllRowsAL' stmt
+  mapM_ print results
+  H.commit conn
+  
+main4::IO ()
+main4 = do
+  --let connectionString = "dsn=pg_gbtest"
+  --let connectionString = "dsn=mysql_test"
+  --let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+  --let connectionString = "dsn=oracle_testdb"
+  let connectionString = "dsn=db2_test2"
+  conn <- H.connectODBC connectionString
+  putStrLn "\nbefore create\n"
+  stmt <- H.prepare conn "create table fred (nm varchar(100) not null)"
+  a <- H.execute stmt []
+  print a
+
+  putStrLn "\nbefore insert\n"
+  stmt <- H.prepare conn "insert into fred values(?)"
+  a <- H.execute stmt [H.SqlString "hello"]
+  print a
+  
+  putStrLn "\nbefore select\n"
+  stmt <- H.prepare conn "select nm,length(nm) from fred"
+  vals <- H.execute stmt []
+  results <- H.fetchAllRowsAL' stmt
+  putStrLn "select after insert"
+  print results
+
+  putStrLn "\nbefore update\n"
+  stmt <- H.prepare conn "update fred set nm=?"
+  a <- H.execute stmt [H.SqlString "worldly"]
+
+  putStrLn "\nbefore select #2\n"
+  stmt <- H.prepare conn "select nm,length(nm) from fred"
+  vals <- H.execute stmt []
+  results <- H.fetchAllRowsAL' stmt
+  putStrLn "select after update"
+  print results
+  
+  H.commit conn
+  
+{-
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=PostgreSQL
+proxied clientver=09.02.0100
+serverver=9.3.0
+
+[("id",SqlColDesc {colType = SqlIntegerT, colSize = Just 10, colOctetLength
+= Nothing, colDecDigits = Nothing, colNullable = Just False}),("name",SqlCol
+Desc {colType = SqlVarCharT, colSize = Just 255, colOctetLength = Nothing, c
+olDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDesc {
+colType = SqlVarCharT, colSize = Just 255, colOctetLength = Nothing, colDecD
+igits = Nothing, colNullable = Just False})]
+
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=MySQL
+proxied clientver=05.02.0005
+serverver=5.6.13-log
+
+[("id",SqlColDesc {colType = SqlBigIntT, colSize = Just 19, colOctetLength =
+ Nothing, colDecDigits = Nothing, colNullable = Just True}),("name",SqlColDe
+sc {colType = SqlLongVarCharT, colSize = Just 65535, colOctetLength = Nothin
+g, colDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDe
+sc {colType = SqlLongVarCharT, colSize = Just 65535, colOctetLength = Nothin
+g, colDecDigits = Nothing, colNullable = Just False})]
+
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=Microsoft SQL Server
+proxied clientver=06.01.7601
+serverver=11.00.2100
+[("id",SqlColDesc {colType = SqlBigIntT, colSize = Just 19, colOctetLength =
+ Nothing, colDecDigits = Nothing, colNullable = Just False}),("name",SqlColD
+esc {colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, c
+olDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDesc {
+colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, colDec
+Digits = Nothing, colNullable = Just False})]
+
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=DB2/NT
+proxied clientver=10.05.0000
+serverver=10.05.0000
+[("id",SqlColDesc {colType = SqlBigIntT, colSize = Just 19, colOctetLength =
+ Nothing, colDecDigits = Nothing, colNullable = Just False}),("name",SqlColD
+esc {colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, c
+olDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDesc {
+colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, colDec
+Digits = Nothing, colNullable = Just False}),("id",SqlColDesc {colType = Sql
+BigIntT, colSize = Just 19, colOctetLength = Nothing, colDecDigits = Nothing
+, colNullable = Just False}),("name",SqlColDesc {colType = SqlVarCharT, colS
+ize = Just 1000, colOctetLength = Nothing, colDecDigits = Nothing, colNullab
+le = Just False}),("employment",SqlColDesc {colType = SqlVarCharT, colSize =
+ Just 1000, colOctetLength = Nothing, colDecDigits = Nothing, colNullable =
+Just False})]
+
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=DB2/NT
+proxied clientver=10.05.0000
+serverver=10.05.0000
+
+[("id",SqlColDesc {colType = SqlBigIntT, colSize = Just 19, colOctetLength =
+ Nothing, colDecDigits = Nothing, colNullable = Just False}),("name",SqlColD
+esc {colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, c
+olDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDesc {
+colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, colDec
+Digits = Nothing, colNullable = Just False}),("id",SqlColDesc {colType = Sql
+BigIntT, colSize = Just 19, colOctetLength = Nothing, colDecDigits = Nothing
+, colNullable = Just False}),("name",SqlColDesc {colType = SqlVarCharT, colS
+ize = Just 1000, colOctetLength = Nothing, colDecDigits = Nothing, colNullab
+le = Just False}),("employment",SqlColDesc {colType = SqlVarCharT, colSize =
+ Just 1000, colOctetLength = Nothing, colDecDigits = Nothing, colNullable =
+Just False})]
+
+drivername=odbc
+clientver=03.80.0000
+proxied drivername=Oracle
+proxied clientver=11.02.0002
+serverver=11.02.0020
+[("id",SqlColDesc {colType = SqlFloatT, colSize = Just 38, colOctetLength =
+Nothing, colDecDigits = Nothing, colNullable = Just False}),("name",SqlColDe
+sc {colType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, co
+lDecDigits = Nothing, colNullable = Just False}),("employment",SqlColDesc {c
+olType = SqlVarCharT, colSize = Just 1000, colOctetLength = Nothing, colDecD
+igits = Nothing, colNullable = Just False})]
+-}

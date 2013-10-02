@@ -41,6 +41,7 @@ import Control.Monad (mzero)
 import Data.Int (Int64)
 import Data.Conduit
 import Database.Persist.ODBCTypes
+import qualified Data.List as L
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -51,7 +52,7 @@ type ConnectionString = String
 -- 'ConnectionPool' outside the action since it may be already
 -- been released.
 withODBCPool :: MonadIO m
-             => DBType 
+             => Maybe DBType 
              -> ConnectionString
              -- ^ Connection string to the database.
              -> Int
@@ -61,7 +62,7 @@ withODBCPool :: MonadIO m
              -- ^ Action to be executed that uses the
              -- connection pool.
              -> m a
-withODBCPool dbt ci = withSqlPool $ open' (getMigrationStrategy dbt) ci
+withODBCPool dbt ci = withSqlPool $ open' dbt ci
 
 
 -- | Create an ODBC connection pool.  Note that it's your
@@ -69,28 +70,39 @@ withODBCPool dbt ci = withSqlPool $ open' (getMigrationStrategy dbt) ci
 -- unneeded.  Use 'withODBCPool' for an automatic resource
 -- control.
 createODBCPool :: MonadIO m
-               => DBType 
+               => Maybe DBType 
                -> ConnectionString
                -- ^ Connection string to the database.
                -> Int
                -- ^ Number of connections to be kept open
                -- in the pool.
                -> m ConnectionPool
-createODBCPool dbt ci = createSqlPool $ open' (getMigrationStrategy dbt) ci
+createODBCPool dbt ci = createSqlPool $ open' dbt ci
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withODBCConn :: (MonadIO m, MonadBaseControl IO m)
-             => DBType -> ConnectionString -> (Connection -> m a) -> m a
-withODBCConn dbt cs = withSqlConn (open' (getMigrationStrategy dbt) cs)
+             => Maybe DBType -> ConnectionString -> (Connection -> m a) -> m a
+withODBCConn dbt cs = withSqlConn (open' dbt cs)
 
-open' :: MigrationStrategy -> ConnectionString -> IO Connection
-open' mig cstr = 
-    O.connectODBC cstr >>= openSimpleConn mig
+open' :: Maybe DBType -> ConnectionString -> IO Connection
+open' mdbtype cstr = 
+    O.connectODBC cstr >>= openSimpleConn mdbtype
+
+findDBMS::String -> String -> DBType
+findDBMS driver ver | driver=="Oracle" = Oracle ("12." `L.isPrefixOf` ver)
+                    | "DB2" `L.isPrefixOf` driver = DB2 
+                    | driver=="Microsoft SQL Server" = MSSQL ("12." `L.isPrefixOf` ver)
+                    | driver=="MySQL" = MySQL 
+                    | otherwise = error $ "unknown driver[" ++ driver ++ "]"
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
-openSimpleConn :: MigrationStrategy -> O.Connection -> IO Connection
-openSimpleConn mig conn = do
+openSimpleConn :: Maybe DBType -> O.Connection -> IO Connection
+openSimpleConn mdbtype conn = do
+    let mig=case mdbtype of 
+              Nothing -> getMigrationStrategy $ findDBMS (O.proxiedClientName conn) (O.proxiedClientVer conn)
+              Just dbtype -> getMigrationStrategy dbtype
+      
     smap <- newIORef Map.empty
     return Connection
         { connPrepare       = prepare' conn
