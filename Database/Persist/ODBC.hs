@@ -13,6 +13,7 @@ module Database.Persist.ODBC
     , OdbcConf (..)
     , openSimpleConn
     , DBType (..)
+    , mysql,postgres,mssqlMin2012,mssql,oracleMin12c,oracle,db2
     ) where
 
 import qualified Control.Exception as E -- (catch, SomeException)
@@ -90,18 +91,19 @@ open' mdbtype cstr =
     O.connectODBC cstr >>= openSimpleConn mdbtype
 
 findDBMS::(String, String, String) -> DBType
-findDBMS all@(driver,ver,serverver) 
-    | driver=="Oracle" = Oracle $ getServerVersionNumber all>=12
+findDBMS dvs@(driver,ver,serverver) 
+    | driver=="Oracle" = Oracle $ getServerVersionNumber dvs>=12
     | "DB2" `L.isPrefixOf` driver = DB2 
-    | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber all>=11
+    | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber dvs>=11
     | driver=="MySQL" = MySQL 
-    | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] " ++ show all
+    | "PostgreSQL" `L.isPrefixOf` driver = Postgres  
+    | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]\nExplicitly set the type of dbms using DBType and try again!"
 
 getServerVersionNumber::(String, String, String) -> Integer
-getServerVersionNumber all@(driver, ver, serverver) = 
+getServerVersionNumber (driver, ver, serverver) = 
       case reads $ takeWhile (/='.') serverver of
         [(a,"")] -> a
-        xs -> error $ "getServerVersionNumber of findDBMS:cannot tell the version xs=" ++show xs ++ ":" ++ show all
+        xs -> error $ "getServerVersionNumber of findDBMS:cannot tell the version xs=" ++show xs ++ ":" ++ "driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]"
 
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'

@@ -29,10 +29,6 @@ library
                       , Database.Persist.MigrateMSSQL
                       , Database.Persist.MigrateOracle
                       , Database.Persist.MigrateDB2
---    if flag(test)
---                    exposed-modules:
-                         , TestODBC
-                        , FtypeEnum
 
     ghc-options:   -Wall -O2
 
@@ -51,11 +47,9 @@ library
                 , resourcet
                 , persistent-template
                 , bytestring
---    if flag(test)
---               build-depends: 
-                   , esqueleto 
-                   ,blaze-html
-    
+    if flag(test)
+               exposed-modules: TestODBC, FtypeEnum
+               build-depends: esqueleto, blaze-html    
     
 test-suite test
   type: exitcode-stdio-1.0
