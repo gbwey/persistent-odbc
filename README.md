@@ -14,13 +14,14 @@ see TestODBC.hs for usage and tests.
 --------------------------------------
     git clone https://github.com/gbwey/persistent-odbc
     git clone https://github.com/gbwey/persistent
-    git clone https://github.com/gbwey/esqueleto
+    git clone https://github.com/gbwey/esqueleto -b test8
     cd persistent-odbc
     cabal sandbox delete
     cabal sandbox init
-    cabal sandbox add-source ..\persistent\persistent
-    cabal sandbox add-source ..\esqueleto
-    cabal install --only-dependencies
+    cabal sandbox add-source ../persistent/persistent
+    cabal sandbox add-source ../esqueleto
+    cabal install --only-dependencies --flags="tester"
+    cabal configure --flags="tester"
     -- assuming all goes well then ...
     cabal repl
     
@@ -60,5 +61,5 @@ cannot sort on a blob field (oracle thing)
 
 ####DB2 and Blobs
 -----------------------
-blobs don't support nulls (both insert) in this version of persistent-odbc (also doesnt work in hdbc-odbc)
-select returns the blob values as hexstrings at the moment
+blobs don't support nulls (both insert and select) in this version of persistent-odbc (also doesnt work in hdbc-odbc)
+select returns the blob values as unpacked strings at the moment (if there is interest in getting this fixed let me know)
