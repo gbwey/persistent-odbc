@@ -36,30 +36,30 @@ see TestODBC.hs for usage and tests.
 
 ####Limit and Offset in Ms Sql Server and Oracle
 --------------------------------------------
-use MSSQL True if you have MS Sql Server 2012 which has limit and offset support (esqueleto as well)
-MSSQL False will support Limit only using persistent select
+  MSSQL True for MS Sql Server 2012 which has limit and offset support (esqueleto as well)
+  MSSQL False for MS Sql Server pre 2012 will only supports Limit using persistent's select (select top n ...)
 
-use Oracle True if you have Oracle >=12c which has limit and offset support (esqueleto as well)
-use Oracle False if you have Oracle <12c where there is no limit and offset support 
+  Oracle True for Oracle >=12c which has limit and offset support (esqueleto as well)
+  Oracle False for Oracle <12c where there is no limit and offset support 
 
 ####Ms Sql Server and Blobs
 -----------------------
-blobs don't support nulls (both insert and select) in this version of persistent-odbc (also doesnt work in hdbc-odbc)
-may have problems with blobs and latest 2012 odbc driver (am using an older version)
+  blobs don't support nulls (both insert and select) in this version of persistent-odbc (also doesn't work in hdbc-odbc)
+  may have problems with blobs and latest 2012 odbc driver (am using an older version)
 
 ####Ms Sql Server and deleteCascadeWhere
 ------------------------------------
-can cause segfault in Ms Sql Server
+  can cause segfault in Ms Sql Server
 
 ####Oracle and nulls
 ----------------
-treats empty string as a null (oracle thing)
+  treats empty string as a null (oracle thing)
 
 ####Oracle and sorting blobs
 ------------------------
-cannot sort on a blob field (oracle thing)
+  cannot sort on a blob field (oracle thing)
 
 ####DB2 and Blobs
 -----------------------
-blobs don't support nulls (both insert and select) in this version of persistent-odbc (also doesnt work in hdbc-odbc)
-select returns the blob values as unpacked strings at the moment (if there is interest in getting this fixed let me know)
+  blobs don't support nulls (both insert and select) in this version of persistent-odbc (also doesn't work in hdbc-odbc)
+  select returns the blob values as unpacked strings at the moment (if there is interest in getting this fixed let me know)
