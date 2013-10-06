@@ -559,11 +559,11 @@ refName (DBName table) (DBName column) =
 
 -- | Escape a database name to be included on a query.
 escapeDBName :: DBName -> String
-escapeDBName (DBName s) = '"' : go (T.unpack s)
+escapeDBName (DBName s) = '[' : go (T.unpack s)
     where
-      go ('"':xs) = '"' : '"' : go xs
+      go (']':xs) = ']' : ']' : go xs
       go ( x :xs) =     x     : go xs
-      go ""       = "\""
+      go ""       = "]"
 -- | SQL code to be executed when inserting an entity.
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
 -- should use scope_identity() but doesnt work :gives null
