@@ -161,18 +161,17 @@ Testlen
 
 main :: IO ()
 main = do
--- HKEY_LOCAL_MACHINE\SOFTWARE\ODBC\ODBC.INI\<dsnname>
   [arg] <- getArgs
   let (dbtype',dsn) = 
        case arg of -- odbc system dsn
-           "d" -> (DB2,"dsn=db2_test2")
-           "p" -> (Postgres,"dsn=pg_gbtest")
+           "d" -> (DB2,"dsn=db2_test")
+           "p" -> (Postgres,"dsn=pg_test")
            "m" -> (MySQL,"dsn=mysql_test")
-           "s" -> (MSSQL True,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]
-           "so" -> (MSSQL False,"dsn=mssql_testdb; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
-           -- "so" -> (MSSQL False,"dsn=mssql_test2012; Trusted Connection=True") -- use older driver [this is junk]
-           "o" -> (Oracle False,"dsn=oracle_testdb") -- pre oracle 12c [no support for limit and offset] 
-           "on" -> (Oracle True,"dsn=oracle_testdb") -- >= oracle 12c [full limit and offset support]
+-- have to pass UID=..; PWD=..; or use Trusted_Connection or Trusted Connection depending on the driver and environment
+           "s" -> (MSSQL True,"dsn=mssql_test; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]
+           "so" -> (MSSQL False,"dsn=mssql_test; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
+           "o" -> (Oracle False,"dsn=oracle_test") -- pre oracle 12c [no support for limit and offset] 
+           "on" -> (Oracle True,"dsn=oracle_test") -- >= oracle 12c [full limit and offset support]
            xs -> error $ "unknown option:choose p m s so o on d found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
@@ -549,7 +548,7 @@ limitoffset dbtype = -- trace ("limitoffset dbtype=" ++ show dbtype) $
     
 main2::IO ()
 main2 = do
---  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
+--  let connectionString = "dsn=mssql_test; Trusted_Connection=True"
   let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
   putStrLn "\n1\n"
@@ -604,11 +603,11 @@ main2 = do
 
 main3::IO ()
 main3 = do
-  --let connectionString = "dsn=pg_gbtest"
+  --let connectionString = "dsn=pg_test"
   --let connectionString = "dsn=mysql_test"
-  let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
-  --let connectionString = "dsn=oracle_testdb"
-  --let connectionString = "dsn=db2_test2"
+  let connectionString = "dsn=mssql_test; Trusted_Connection=True"
+  --let connectionString = "dsn=oracle_test"
+  --let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
   putStrLn "\n1\n"
 
@@ -635,11 +634,11 @@ main3 = do
   
 main4::IO ()
 main4 = do
-  --let connectionString = "dsn=pg_gbtest"
+  --let connectionString = "dsn=pg_test"
   --let connectionString = "dsn=mysql_test"
-  --let connectionString = "dsn=mssql_testdb; Trusted_Connection=True"
-  --let connectionString = "dsn=oracle_testdb"
-  let connectionString = "dsn=db2_test2"
+  --let connectionString = "dsn=mssql_test; Trusted_Connection=True"
+  --let connectionString = "dsn=oracle_test"
+  let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
   putStrLn "\nbefore create\n"
   stmt <- H.prepare conn "create table fred (nm varchar(100) not null)"
