@@ -21,18 +21,24 @@ see TestODBC.hs for usage and tests.
     cabal sandbox add-source ../esqueleto
     cabal install --only-dependencies --flags="tester"
     cabal configure --flags="tester"
-    -- assuming all goes well then ...
     cabal repl
     
-    :l TestODBC.hs  [[after creating/changing the odbc system dsns]]
-    :main s  [[test with mssql 2012]]
-    :main so [[test with mssql pre 2012]]
-    :main o  [[test with oracle pre 12c]]
-    :main on [[test with oracle >=12c]]
-    :main p  [[test with postgres]]
-    :main m  [[test with mysql]]
-    :main d  [[test with db2]]
+    :load TestODBC.hs  (also need to define the appropriate odbc system dsn below and then run the command)
+    
+    e.g. for postgresql
+        1. define the system odbc dsn pg_test
+        2. :main p  
 
+| Command | DBMS | ODBC System Dsn | Notes |
+| ------------- |:------------- |:----- |:----- |
+| :main p      | Postgresql | dsn=pg_test | |
+| :main m      | MySQL | dsn=mysql_test | |
+| :main d      | DB2 | dsn=db2_test | |
+| :main s      | Ms Sql Server | dsn=mssql_test; Trusted_Authentication=True; | >= 2012 |
+| :main so      | Ms Sql Server | dsn=mssql_test; Trusted_Authentication=True; | pre 2012 |
+| :main o      | Oracle | dsn=oracle_test | pre 10c |
+| :main on      | Oracle | dsn=oracle_test | >= 10c |
+ 
 ####Limit and Offset in Ms Sql Server and Oracle
   MSSQL True for MS Sql Server 2012 which has limit and offset support (esqueleto as well)
   MSSQL False for MS Sql Server pre 2012 will only supports Limit using persistent's select (select top n ...)
