@@ -335,9 +335,9 @@ test1 dbtype = do
     unless (length aa == 4) $ error $ "wrong number of Person rows " ++ show aa
     liftIO $ putStrLn $ "persony " ++ show aa
     let sql = case dbtype of 
-                Oracle {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
-                DB2 {} -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
-                _  -> "SELECT name FROM persony WHERE name LIKE '%Snoyman%'"
+                MSSQL {} -> "SELECT [name] FROM [persony] WHERE [name] LIKE '%Snoyman%'"
+                MySQL {} -> "SELECT `name` FROM `persony` WHERE `name` LIKE '%Snoyman%'"
+                _        -> "SELECT \"name\" FROM \"persony\" WHERE \"name\" LIKE '%Snoyman%'"
     rawQuery sql [] $$ CL.mapM_ (liftIO . print)
     
 test2::SqlPersistT (NoLoggingT (ResourceT IO)) ()
