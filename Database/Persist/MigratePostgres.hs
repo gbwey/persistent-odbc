@@ -26,7 +26,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
-import Debug.Trace
+--import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Postgres {} = 
@@ -288,7 +288,7 @@ cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') | def==def' = True
                               | otherwise = 
         let (a,_)=T.breakOnEnd ":" def'
-        in trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
+        in -- trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
            case T.stripSuffix "::" a of
               Just xs -> def==xs
               Nothing -> False

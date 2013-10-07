@@ -23,7 +23,7 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Debug.Trace
+--import Debug.Trace
 --import Data.Char
 
 getMigrationStrategy :: DBType -> MigrationStrategy
@@ -382,7 +382,7 @@ findAlters allDefs col@(Column name isNull type_ def _defConstraintName _maxLen 
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | cmpdef def def' = []
-                       | otherwise   = trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                       | otherwise   = -- trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                                        case def of
                                          Nothing -> [(name, NoDefault)]
                                          Just s -> [(name, Default $ T.unpack s)]

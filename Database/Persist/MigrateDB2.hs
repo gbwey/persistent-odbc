@@ -43,7 +43,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
-import Debug.Trace
+--import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@DB2 {} = 
@@ -500,5 +500,5 @@ insertSql' t cols id' vals =
         , ")"
         ]
       doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = trace "\n\nin blob with a value\n\n" "blob(?)"
+      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "blob(?)" -- trace "\n\nin blob with a value\n\n" "blob(?)"
       doValue _ _ = "?"

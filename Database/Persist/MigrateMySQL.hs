@@ -24,7 +24,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Debug.Trace
+--import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@MySQL {} = 

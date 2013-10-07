@@ -35,7 +35,7 @@ import Database.Esqueleto (select,where_,(^.),from,Value(..))
 import Data.ByteString (ByteString)
 import Data.Ratio
 import Text.Blaze.Html
-import Debug.Trace
+--import Debug.Trace
 
 share [mkPersist sqlOnlySettings, mkMigrate "migrateAll", mkDeleteCascade sqlOnlySettings] [persistLowerCase|
 Test0 

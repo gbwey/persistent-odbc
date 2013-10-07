@@ -32,7 +32,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Debug.Trace
+--import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@MSSQL { mssql2012=ok } = 
@@ -582,7 +582,7 @@ insertSql' t cols _ vals = -- trace ("doInsert=" ++ show doInsert ++ " cols=" ++
       --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
       --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
       doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
+      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "convert(varbinary(max),?)" -- trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
 --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
@@ -597,7 +597,7 @@ limitOffset mssql2012 (limit,offset) hasOrder sql
    | not mssql2012 && offset==0 = case "select " `T.isPrefixOf` T.toLower (T.take 7 sql) of
                                     True -> let (a,b) = T.splitAt 7 sql 
                                                 ret=a <> T.pack "top " <> T.pack (show limit) <> " " <> b
-                                            in trace ("ret="++show ret) ret
+                                            in ret -- trace ("ret="++show ret) ret
                                     False -> if T.null sql then error "MSSQL: not 2012 so trying to add 'top n' but the sql is empty"
                                               else error $ "MSSQL: not 2012 so trying to add 'top n' but is not a select sql=" ++ T.unpack sql
    | mssql2012 = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql

@@ -51,8 +51,7 @@ library
     build-depends: esqueleto, blaze-html    
     exposed-modules: TestODBC, FtypeEnum
 
-test-suite test
-  type: exitcode-stdio-1.0
+executable   testodbc
   ghc-options:    -Wall
   hs-source-dirs: .
   main-is:        TestODBC.hs
@@ -67,20 +66,12 @@ test-suite test
                 , HDBC          
                 , HDBC-odbc     
                 , persistent    
-                -- , monad-logger
+                , monad-logger
                 , resourcet
                 , persistent-template
                 , bytestring
-
-      -- Test-only dependencies
                 , esqueleto
                 , blaze-html
-    , containers
-    , HUnit
-    , QuickCheck
-    , hspec               >= 1.3 && < 1.8
-    , monad-control
-    , monad-logger        >= 0.3
     
 source-repository head
   type:     git
