@@ -6,7 +6,7 @@ to access databases via ODBC.
 Thanks to Dmitry Olshansky at https://github.com/odr/persistent-odbc/
 for doing the initial hookup to hdbc-odbc.
 
-Supports Postgres, MySql, MS Sql Server, Oracle and DB2.
+Supports Postgres, MySql, MS Sql Server, Oracle, DB2, and SQLite.
 
 see TestODBC.hs for usage and tests.
 
@@ -38,6 +38,7 @@ see TestODBC.hs for usage and tests.
 | Ms Sql Server pre 2012 | dsn=mssql_test; Trusted_Authentication=True; | :main so |
 | Oracle pre 12c         | dsn=oracle_test | :main o | 
 | Oracle >= 12c          | dsn=oracle_test | :main on |
+| Sqlite                 | dsn=sqlite_test | :main q |
  
 ####Limit and Offset in Ms Sql Server and Oracle
   MSSQL True for MS Sql Server 2012 which has limit and offset support (esqueleto as well).
