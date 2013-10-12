@@ -1,19 +1,9 @@
-{-
-Migrating: ALTER TABLE "test0" ALTER COLUMN "mybool" SET DATA TYPE CHAR(1)
-Migrating: ALTER TABLE "test1" ALTER COLUMN "flag" SET DATA TYPE CHAR(1)
-Migrating: ALTER TABLE "test1" ALTER COLUMN "flag1" SET DATA TYPE CHAR(1)
-Migrating: ALTER TABLE "blog_post" DROP CONSTRAINT "blog_post_author_id_fkey"
-Migrating: ALTER TABLE "xsd" DROP CONSTRAINT "xsd_asmid_fkey"
-Migrating: ALTER TABLE "line" DROP CONSTRAINT "line_xsdid_fkey"
-Migrating: ALTER TABLE "interface" DROP CONSTRAINT "interface_ftypeid_fkey"
-Migrating: ALTER TABLE "testrational" ALTER COLUMN "rat" SET DATA TYPE NUMERIC(20)
-
-aa=[Entity {entityKey = Key {unKey = PersistInt64 1}, entityVal = Testlen {t
-estlenTxt = "txt1", testlenStr = "str1", testlenBs = "627331", testlenMtxt =
- Just "txt1m", testlenMstr = Just "str1m", testlenMbs = Just "6273316D"}},En
-tity {entityKey = Key {unKey = PersistInt64 2}, entityVal = Testlen {testlen
-Txt = "txt2", testlenStr = "str2", testlenBs = "627332", testlenMtxt = Just
-"aaaa", testlenMstr = Just "str2m", testlenMbs = Just "6273326D"}}]
+{- 
+Migrating: ALTER TABLE "table_many" DROP CONSTRAINT "table_many_refone_fkey"
+Migrating: ALTER TABLE "table_many" DROP CONSTRAINT "table_many_reftwo_fkey"
+Migrating: ALTER TABLE "table_many_many" DROP CONSTRAINT "table_many_many_refone_fkey"
+Migrating: ALTER TABLE "table_many_many" DROP CONSTRAINT "table_many_many_refthree_fkey"
+Migrating: ALTER TABLE "table_many_many" DROP CONSTRAINT "table_many_many_reftwo_fkey"
 -}
 {-# LANGUAGE EmptyDataDecls    #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -39,6 +29,7 @@ import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import Data.Maybe (mapMaybe)
+import Data.Monoid ((<>))
 
 import qualified Data.Text.Encoding as TE
 
@@ -69,27 +60,21 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let new = first (filter $ not . safeToRemove val . cName)
                     $ second (map udToPair)
                     $ mkColumns allDefs val
+            let composite = "composite" `elem` entityAttrs val
             if null old
                 then do
-                    let idtxt = case "noid" `elem` entityAttrs val of
-                                  True  -> trace ("found it!!! val=" ++ show val) []
-                                  False -> trace ("not found val=" ++ show val) $
+                    let idtxt = if composite then trace ("found it!!! val=" ++ show val) (" CONSTRAINT " <> T.unpack (escape (pkeyName (entityDB val))) <> " PRIMARY KEY (" <> (intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val) <> ")")
+                                else trace ("not found val=" ++ show val) $
                                              concat [T.unpack $ escape $ entityID val
-                                        , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) "]
-                    let pk = case "noid" `elem` entityAttrs val of
-                                  True  -> trace ("found it!!! val=" ++ show val) $ intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val
-                                  False -> trace ("not found val=" ++ show val) $ T.unpack $ escape $ entityID val
+                                        , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                             [ "CREATe TABLE "
                             , T.unpack $ escape name
                             , "("
                             , idtxt
-                            , if null (fst new) || null (idtxt) then [] else ","
+                            , if null (fst new) then [] else ","
                             , intercalate "," $ map (\x -> showColumn x) $ fst new
-                            , " ,PRIMARY KEY("
-                            , pk
-                            , ")"
                             , ")"
                             ]
                     let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -150,12 +135,13 @@ getColumns getter def = do
                           ,"AND b.tabschema=a.tabschema "
                           ,"AND a.tabname=? "
                           ,"AND a.colname <> ? "
+                          -- ,"AND b.type <> 'P'"
                           ,"ORDER BY constraint_name, column_name"]
 
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
-    return $ cs ++ us
+    trace ("getColumns: cs="++show cs++"\n\nus="++show us) $ return $ cs ++ us
   where
     getAll front = do
         x <- CL.head
@@ -241,7 +227,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         , cMaxLen = Nothing
                         , cReference = ref
                         }
-  where
+  where -- find the referring table for any fkeys
     getRef cname = do
         let sql=concat ["SELECT "
                        ,"reftbname REFERENCED_TABLE_NAME "
@@ -341,7 +327,7 @@ getAddReference table (Column n _nu _ _def _defConstraintName _maxLen ref) =
         Just (s, _) -> Just $ AlterColumn table (n, AddReference s)
 
 showColumn :: Column -> String
-showColumn c@(Column n nu sqlType def defConstraintName _maxLen _ref) = concat
+showColumn (Column n nu sqlType def defConstraintName _maxLen _ref) = concat
     [ T.unpack $ escape n
     , " "
     , showSqlType sqlType _maxLen
@@ -367,6 +353,7 @@ showSqlType SqlBool Nothing = "CHARACTER"
 showSqlType SqlBool (Just 1) = "CHARACTER"
 showSqlType SqlBool (Just n) = "CHARACTER(" ++ show n ++ ")"
 showSqlType (SqlOther t) _ = T.unpack t
+showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 showAlterDb :: AlterDB -> (Bool, Text)
 showAlterDb (AddTable s) = (False, pack s)
@@ -491,11 +478,15 @@ refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
     DBName $ T.concat [table, "_", column, "_fkey"]
 
+pkeyName :: DBName -> DBName
+pkeyName (DBName table) =
+    DBName $ T.concat [table, "_pkey"]
+
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols id' vals True =
+insertSql' t cols _ vals True =
   let keypair = case vals of
                   (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
                   _ -> error $ "unexpected vals returned: vals=" ++ show vals
@@ -511,7 +502,7 @@ insertSql' t cols id' vals True =
                 , ")"
                 ]
 
-insertSql' t cols id' vals False = 
+insertSql' t cols _ vals False = 
   trace "isrinsertget" $
     ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
     where

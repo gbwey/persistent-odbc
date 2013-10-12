@@ -47,6 +47,7 @@ migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old, mseq) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
+    let composite = "composite" `elem` entityAttrs val
     let addSequence = AddSequence $ concat
             [ "CREATE SEQUENCE " 
             ,getSeqNameEscaped name
@@ -55,9 +56,9 @@ migrate' allDefs getter val = do
     case (idClmn, old, partitionEithers old, mseq) of
       -- Nothing found, create everything
       ([], [], _, _) -> do
-        let idtxt = case "noid" `elem` entityAttrs val of
-                      True  -> trace ("found it!!! val=" ++ show val) []
-                      False -> trace ("not found val=" ++ show val) $
+        let idtxt = if composite then
+                      trace ("found it!!! val=" ++ show val) $ " CONSTRAINT " <> escapeDBName (pkeyName (entityDB val)) <> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val) <> ")"
+                    else trace ("not found val=" ++ show val) $
                                  concat [escapeDBName $ entityID val
                             , " NUMBER NOT NULL PRIMARY KEY "]
         let addTable = AddTable $ concat
@@ -66,7 +67,7 @@ migrate' allDefs getter val = do
                 , escapeDBName name
                 , "("
                 , idtxt
-                , if null (fst new) || null (idtxt) then [] else ","
+                , if null (fst new) then [] else ","
                 , intercalate "," $ map (\x -> showColumn x) $ fst new
                 , ")"
                 ]
@@ -413,7 +414,7 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def defConstraintName maxLen ref) = concat
+showColumn (Column n nu t def _ maxLen ref) = concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -446,6 +447,7 @@ showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
 showSqlType (SqlOther t) _        = error ("oops in showSqlType " ++ show t)  -- $ T.unpack t
+showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -558,6 +560,9 @@ refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
     DBName $ T.concat [table, "_", column, "_fkey"]
 
+pkeyName :: DBName -> DBName
+pkeyName (DBName table) =
+    DBName $ T.concat [table, "_pkey"]
 
 ----------------------------------------------------------------------
 
@@ -571,7 +576,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols id' vals True =
+insertSql' t cols _ vals True =
   let keypair = case vals of
                   (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
                   _ -> error $ "unexpected vals returned: vals=" ++ show vals

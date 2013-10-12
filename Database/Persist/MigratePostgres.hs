@@ -11,14 +11,12 @@ module Database.Persist.MigratePostgres
 
 import Database.Persist.Sql
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.List (intercalate)
 import qualified Data.Text as T
-import qualified Data.List as L
 import Data.Text (pack,Text)
 
 import Data.Either (partitionEithers)
 import Control.Arrow
-import Data.List (sort, groupBy)
+import Data.List (intercalate, sort, groupBy)
 import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -53,11 +51,12 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let new = first (filter $ not . safeToRemove val . cName)
                     $ second (map udToPair)
                     $ mkColumns allDefs val
+            let composite = "composite" `elem` entityAttrs val
             if null old
                 then do
-                    let idtxt = case "noid" `elem` entityAttrs val of
-                                  True  -> trace ("found it!!! val=" ++ show val) []
-                                  False -> trace ("not found val=" ++ show val) $
+                    let idtxt = if composite then 
+                                  trace ("found it!!! val=" ++ show val) $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
+                                else trace ("not found val=" ++ show val) $
                                              concat [T.unpack $ escape $ entityID val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
@@ -66,8 +65,8 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                             , T.unpack $ escape name
                             , "("
                             , idtxt
-                            , if null (fst new) || null (idtxt) then [] else ","
-                            , intercalate "," $ map (\x -> showColumn x) $ fst new
+                            , if null (fst new) then [] else ","
+                            , intercalate "," $ map showColumn $ fst new
                             , ")"
                             ]
                     let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -333,6 +332,7 @@ showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
 showSqlType SqlBlob _ = "BYTEA"
 showSqlType SqlBool _ = "BOOLEAN"
 showSqlType (SqlOther t) _ = T.unpack t
+showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 showAlterDb :: AlterDB -> (Bool, Text)
 showAlterDb (AddTable s) = (False, pack s)
@@ -461,7 +461,7 @@ udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols id' vals True =
+insertSql' t cols _ vals True =
   let keypair = case vals of
                   (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
                   _ -> error $ "unexpected vals returned: vals=" ++ show vals
@@ -477,7 +477,7 @@ insertSql' t cols id' vals True =
                 , ")"
                 ]
 
-insertSql' t cols id' vals False = 
+insertSql' t cols id' _ False = 
   trace "isrsingle" $
   ISRSingle $ pack $ concat
     [ "INSERT INTO "
