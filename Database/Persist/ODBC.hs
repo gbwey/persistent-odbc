@@ -13,7 +13,7 @@ module Database.Persist.ODBC
     , OdbcConf (..)
     , openSimpleConn
     , DBType (..)
-    , mysql,postgres,mssqlMin2012,mssql,oracleMin12c,oracle,db2
+    , mysql,postgres,mssqlMin2012,mssql,oracleMin12c,oracle,db2,sqlite
     ) where
 
 import qualified Control.Exception as E -- (catch, SomeException)
@@ -23,6 +23,7 @@ import qualified Database.Persist.MigrateMySQL as MYSQL
 import qualified Database.Persist.MigrateMSSQL as MSSQL
 import qualified Database.Persist.MigrateOracle as ORACLE
 import qualified Database.Persist.MigrateDB2 as DB2
+import qualified Database.Persist.MigrateSqlite as SQLITE
 
 import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
 
@@ -97,6 +98,7 @@ findDBMS dvs@(driver,ver,serverver)
     | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber dvs>=11
     | driver=="MySQL" = MySQL 
     | "PostgreSQL" `L.isPrefixOf` driver = Postgres  
+    | "SQLite" `L.isPrefixOf` driver = Sqlite
     | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]\nExplicitly set the type of dbms using DBType and try again!"
 
 getServerVersionNumber::(String, String, String) -> Integer
@@ -140,6 +142,7 @@ getMigrationStrategy dbtype =
     MSSQL {}  -> MSSQL.getMigrationStrategy dbtype
     Oracle {} -> ORACLE.getMigrationStrategy dbtype
     DB2 {}    -> DB2.getMigrationStrategy dbtype
+    Sqlite {} -> SQLITE.getMigrationStrategy dbtype
 
 prepare' :: O.Connection -> Text -> IO Statement
 prepare' conn sql = do
