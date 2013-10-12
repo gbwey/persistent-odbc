@@ -231,6 +231,9 @@ instance DC.Convertible P HSV.SqlValue where
         , DC.convSourceType    = "P (PersistValue)" 
         , DC.convDestType      = "SqlValue"
         , DC.convErrorMessage  = "Refusing to serialize a PersistObjectId to an ODBC value" }
+    --safeConvert (P (PersistManyKeys p@(i,j)))         = Right $ HSV.toSql p
+    safeConvert xs                              = error $ "unhandled safeConvert xs=" ++ show xs
+
 
 -- FIXME: check if those are correct and complete.
 instance DC.Convertible HSV.SqlValue P where 

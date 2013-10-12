@@ -43,7 +43,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
---import Debug.Trace
+import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@DB2 {} = 
@@ -71,16 +71,24 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                     $ mkColumns allDefs val
             if null old
                 then do
+                    let idtxt = case "noid" `elem` entityAttrs val of
+                                  True  -> trace ("found it!!! val=" ++ show val) []
+                                  False -> trace ("not found val=" ++ show val) $
+                                             concat [T.unpack $ escape $ entityID val
+                                        , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) "]
+                    let pk = case "noid" `elem` entityAttrs val of
+                                  True  -> trace ("found it!!! val=" ++ show val) $ intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val
+                                  False -> trace ("not found val=" ++ show val) $ T.unpack $ escape $ entityID val
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                             [ "CREATe TABLE "
                             , T.unpack $ escape name
                             , "("
-                            , T.unpack $ escape $ entityID val
-                            , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) "
-                            , concatMap (\x -> ',' : showColumn x) $ fst new
+                            , idtxt
+                            , if null (fst new) || null (idtxt) then [] else ","
+                            , intercalate "," $ map (\x -> showColumn x) $ fst new
                             , " ,PRIMARY KEY("
-                            , T.unpack $ escape $ entityID val
+                            , pk
                             , ")"
                             , ")"
                             ]
@@ -486,8 +494,25 @@ refName (DBName table) (DBName column) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
-insertSql' t cols id' vals = 
+insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
+insertSql' t cols id' vals True =
+  let keypair = case vals of
+                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
+                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
+  in trace ("yes ISRManyKeys!!! sql="++show sql) $
+      ISRManyKeys sql keypair 
+        where sql = pack $ concat
+                [ "INSERT INTO "
+                , T.unpack $ escape t
+                , "("
+                , intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , ") VALUES("
+                , intercalate "," (map (const "?") cols)
+                , ")"
+                ]
+
+insertSql' t cols id' vals False = 
+  trace "isrinsertget" $
     ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
     where
       doInsert = pack $ concat

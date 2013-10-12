@@ -23,7 +23,7 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
---import Debug.Trace
+import Debug.Trace
 --import Data.Char
 
 getMigrationStrategy :: DBType -> MigrationStrategy
@@ -55,14 +55,19 @@ migrate' allDefs getter val = do
     case (idClmn, old, partitionEithers old, mseq) of
       -- Nothing found, create everything
       ([], [], _, _) -> do
+        let idtxt = case "noid" `elem` entityAttrs val of
+                      True  -> trace ("found it!!! val=" ++ show val) []
+                      False -> trace ("not found val=" ++ show val) $
+                                 concat [escapeDBName $ entityID val
+                            , " NUMBER NOT NULL PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATE TABLe "
                 , escapeDBName name
                 , "("
-                , escapeDBName $ entityID val
-                , " NUMBER NOT NULL PRIMARY KEY"
-                , concatMap (\x -> ',' : showColumn x) $ fst new
+                , idtxt
+                , if null (fst new) || null (idtxt) then [] else ","
+                , intercalate "," $ map (\x -> showColumn x) $ fst new
                 , ")"
                 ]
         let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -565,8 +570,24 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> InsertSqlResult
-insertSql' t cols idcol _ = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
+insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
+insertSql' t cols id' vals True =
+  let keypair = case vals of
+                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
+                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
+  in trace ("yes ISRManyKeys!!! sql="++show sql) $
+      ISRManyKeys sql keypair 
+        where sql = pack $ concat
+                [ "INSERT INTO "
+                , escapeDBName t
+                , "("
+                , intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , ") VALUES("
+                , intercalate "," (map (const "?") cols)
+                , ")"
+                ]
+
+insertSql' t cols idcol _ False = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
