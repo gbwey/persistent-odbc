@@ -27,6 +27,9 @@ import qualified Data.Text.Encoding as TE
 import Database.Persist.ODBCTypes
 import Debug.Trace
 
+tracex::String -> a -> a
+tracex a b = b  -- trace a b
+
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Postgres {} = 
      MigrationStrategy
@@ -55,8 +58,8 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             if null old
                 then do
                     let idtxt = if composite then 
-                                  trace ("found it!!! val=" ++ show val) $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
-                                else trace ("not found val=" ++ show val) $
+                                  tracex ("found it!!! val=" ++ show val) $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
+                                else tracex ("not found val=" ++ show val) $
                                              concat [T.unpack $ escape $ entityID val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
@@ -108,6 +111,7 @@ getColumns getter def = do
                           ,",numeric_scale "
                           ,"FROM information_schema.columns "
                           ,"WHERE table_catalog=current_database() "
+                          ,"AND table_schema=current_schema() "
                           ,"AND table_name=? "
                           ,"AND column_name <> ?"]
   
@@ -122,6 +126,7 @@ getColumns getter def = do
                           ,",column_name "
                           ,"FROM information_schema.constraint_column_usage "
                           ,"WHERE table_catalog=current_database() "
+                          ,"AND table_schema=current_schema() "
                           ,"AND table_name=? "
                           ,"AND column_name <> ? "
                           ,"ORDER BY constraint_name, column_name"]
@@ -129,7 +134,7 @@ getColumns getter def = do
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
-    return $ cs ++ us
+    tracex ("getColumns: cs="++show cs++"\n\nus="++show us) $ return $ cs ++ us
   where
     getAll front = do
         x <- CL.head
@@ -147,10 +152,10 @@ getColumns getter def = do
     helper = do
         x <- CL.head
         case x of
-            Nothing -> return []
+            Nothing -> tracex "getColumns helper Nothing!!!" $ return []
             Just x' -> do
                 col <- liftIO $ getColumn getter (entityDB def) x'
-                let col' = case col of
+                let col' = tracex ("getColumns helper: col="++show col) $ case col of
                             Left e -> Left e
                             Right c -> Right $ Left c
                 cols <- helper
@@ -220,8 +225,9 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
         let sql = concat
                 [ "SELECT COUNT(*) FROM "
                 , "information_schema.table_constraints "
-                , "WHERE table_catalog=current_database()"
-                , "AND table_name=?"
+                , "WHERE table_catalog=current_database() "
+                , "AND table_schema=current_schema() "
+                , "AND table_name=? "
                 , "AND constraint_type='FOREIGN KEY' "
                 , "AND constraint_name=?"
                 ]
@@ -229,10 +235,10 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
         stmt <- getter $ pack sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
-                     , PersistText $ unDBName ref
+                     , tracex ("LET REF=ref["++show ref++"] tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") $ PersistText $ unDBName ref
                      ] $$ do
             Just [PersistInt64 i] <- CL.head
-            return $ if i == 0 then Nothing else Just (DBName "", ref)
+            tracex ("getRef PersistInt64 i="++show i++" tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") $ return $ if i == 0 then Nothing else Just (DBName "", ref)
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -258,7 +264,7 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
+findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols = tracex ("findAlters col="++show col ++ " cols="++show cols) $ 
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
@@ -266,7 +272,7 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
                 refDrop (Just (_, cname)) = [(name, DropReference cname)]
                 refAdd Nothing = []
                 refAdd (Just (tname, _)) = [(name, AddReference tname)]
-                modRef =
+                modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
                         then []
                         else refDrop ref' ++ refAdd ref
@@ -278,8 +284,9 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
                                             Just s -> (:) (name, Update' $ T.unpack s)
                                  in up [(name, NotNull)]
                             _ -> []
-                modType = if sqltype == sqltype' then [] else [(name, Type sqltype)]
-                modDef = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                modType = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
+                          if sqltype == sqltype' then [] else [(name, Type sqltype)]
+                modDef = tracex ("modDef col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                     if cmpdef def def'
                         then []
                         else case def of
@@ -293,7 +300,7 @@ cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') | def==def' = True
                               | otherwise = 
         let (a,_)=T.breakOnEnd ":" def'
-        in -- trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
+        in -- tracex ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
            case T.stripSuffix "::" a of
               Just xs -> def==xs
               Nothing -> False
@@ -465,7 +472,7 @@ insertSql' t cols _ vals True =
   let keypair = case vals of
                   (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
                   _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in trace ("yes ISRManyKeys!!! sql="++show sql) $
+  in tracex ("yes ISRManyKeys!!! sql="++show sql) $
       ISRManyKeys sql keypair 
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -478,7 +485,7 @@ insertSql' t cols _ vals True =
                 ]
 
 insertSql' t cols id' _ False = 
-  trace "isrsingle" $
+  tracex "isrsingle" $
   ISRSingle $ pack $ concat
     [ "INSERT INTO "
     , T.unpack $ escape t

@@ -18,13 +18,12 @@ module Database.Persist.MigrateDB2
 
 import Database.Persist.Sql
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.List (intercalate)
 import qualified Data.Text as T
 import Data.Text (pack,Text)
 
 import Data.Either (partitionEithers)
 import Control.Arrow
-import Data.List (sort, groupBy)
+import Data.List (intercalate, sort, groupBy)
 import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -35,6 +34,9 @@ import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
 import Debug.Trace
+
+tracex::String -> a -> a
+tracex a b = b  -- trace a b
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@DB2 {} = 
@@ -63,8 +65,9 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let composite = "composite" `elem` entityAttrs val
             if null old
                 then do
-                    let idtxt = if composite then trace ("found it!!! val=" ++ show val) (" CONSTRAINT " <> T.unpack (escape (pkeyName (entityDB val))) <> " PRIMARY KEY (" <> (intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val) <> ")")
-                                else trace ("not found val=" ++ show val) $
+                    let idtxt = if composite then 
+                                  tracex ("found it!!! val=" ++ show val) $ concat [" CONSTRAINT ", T.unpack (escape (pkeyName (entityDB val))), " PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
+                                else tracex ("not found val=" ++ show val) $
                                              concat [T.unpack $ escape $ entityID val
                                         , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
                     let addTable = AddTable $ concat
@@ -74,7 +77,7 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                             , "("
                             , idtxt
                             , if null (fst new) then [] else ","
-                            , intercalate "," $ map (\x -> showColumn x) $ fst new
+                            , intercalate "," $ map showColumn $ fst new
                             , ")"
                             ]
                     let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -123,6 +126,8 @@ getColumns getter def = do
     let vals =
             [ PersistText $ unDBName $ entityDB def
             , PersistText $ unDBName $ entityID def
+            , PersistText $ unDBName $ entityDB def
+            , PersistText $ unDBName $ entityID def
             ]
 
     cs <- runResourceT $ stmtQuery stmt vals $$ helper
@@ -135,13 +140,21 @@ getColumns getter def = do
                           ,"AND b.tabschema=a.tabschema "
                           ,"AND a.tabname=? "
                           ,"AND a.colname <> ? "
-                          -- ,"AND b.type <> 'P'"
+                          ,"AND b.type not in ('F','P') "
+                          ,"UNION "
+                          ,"SELECT "
+                          ,"constname constraint_name "
+                          ,",trim(pk_colnames) column_name "
+                          ,"FROM syscat.references "
+                          ,"WHERE tabschema=current_schema "
+                          ,"AND reftabname=? "
+                          ,"AND trim(pk_colnames) <> ? "
                           ,"ORDER BY constraint_name, column_name"]
 
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
-    trace ("getColumns: cs="++show cs++"\n\nus="++show us) $ return $ cs ++ us
+    tracex ("getColumns: cs="++show cs++"\n\nus="++show us) $ return $ cs ++ us
   where
     getAll front = do
         x <- CL.head
@@ -159,10 +172,10 @@ getColumns getter def = do
     helper = do
         x <- CL.head
         case x of
-            Nothing -> return []
+            Nothing -> tracex "getColumns helper Nothing!!!" $ return []
             Just x' -> do
                 col <- liftIO $ getColumn getter (entityDB def) x'
-                let col' = case col of
+                let col' = tracex ("getColumns helper: col="++show col) $ case col of
                             Left e -> Left e
                             Right c -> Right $ Left c
                 cols <- helper
@@ -230,21 +243,22 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
   where -- find the referring table for any fkeys
     getRef cname = do
         let sql=concat ["SELECT "
-                       ,"reftbname REFERENCED_TABLE_NAME "
-                       ,"FROM sysibm.sysrels "
-                       ,"WHERE tbname=? "
-                       ,"AND relname=? "
+                       ,"tabname REFERENCED_TABLE_NAME "
+                       ,"FROM syscat.references "
+                       ,"WHERE tabschema=current_schema "
+                       ,"AND tabname=? "
+                       ,"AND constname=? "
                        ]
         let ref = refName tname cname
         stmt <- getter $ pack sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
-                     , PersistText $ unDBName ref
+                     , tracex ("LET REF=ref["++show ref++"] tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") $ PersistText $ unDBName ref
                      ] $$ do
             hd <- CL.head
             return $ case hd of
-              Just [PersistByteString bs] -> Just (DBName $ TE.decodeUtf8 bs, ref)
-              Nothing -> Nothing
+              Just [PersistByteString bs] -> tracex ("getRef PersistByteString tname[" ++ show tname ++ "] cname[" ++ show cname ++ "] bs=" ++ show (DBName $ TE.decodeUtf8 bs)) $ Just (DBName "", ref) -- (DBName $ TE.decodeUtf8 bs, ref)
+              Nothing -> tracex ("getRef Nothing!!!! tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") Nothing
               xs -> error $ "unknown value returned " ++ show xs ++ " other="++show (tname,cname)
     d' = case d of
             PersistNull   -> Right Nothing
@@ -272,7 +286,7 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols = -- trace ("findAlters col="++show col ++ " cols="++show cols) $ 
+findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols = tracex ("findAlters col="++show col ++ " cols="++show cols) $ 
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
@@ -292,9 +306,9 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
                                             Just s -> (:) (name, Update' $ T.unpack s)
                                  in up [(name, NotNull)]
                             _ -> []
-                modType = -- trace ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
+                modType = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                           if tpcheck sqltype sqltype' then [] else [(name, Type sqltype)]
-                modDef = -- trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                modDef = tracex ("modDef col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                     if cmpdef def def'
                         then []
                         else case def of
@@ -313,7 +327,7 @@ cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') | def==def' = True
                               | otherwise = 
         let (a,_)=T.breakOnEnd ":" def'
-        in -- trace ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
+        in -- tracex ("cmpdef def[" ++ show def ++ "] def'[" ++ show def' ++ "] a["++show a++"]") $ 
            case T.stripSuffix "::" a of
               Just xs -> def==xs
               Nothing -> False
@@ -490,7 +504,7 @@ insertSql' t cols _ vals True =
   let keypair = case vals of
                   (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
                   _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in trace ("yes ISRManyKeys!!! sql="++show sql) $
+  in tracex ("yes ISRManyKeys!!! sql="++show sql) $
       ISRManyKeys sql keypair 
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -503,7 +517,7 @@ insertSql' t cols _ vals True =
                 ]
 
 insertSql' t cols _ vals False = 
-  trace "isrinsertget" $
+  tracex "isrinsertget" $
     ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
     where
       doInsert = pack $ concat
@@ -515,6 +529,6 @@ insertSql' t cols _ vals False =
         , intercalate "," $ zipWith doValue cols vals
         , ")"
         ]
-      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "blob(?)" -- trace "\n\nin blob with a value\n\n" "blob(?)"
+      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "blob(?)" -- tracex "\n\nin blob with a value\n\n" "blob(?)"
       doValue _ _ = "?"
