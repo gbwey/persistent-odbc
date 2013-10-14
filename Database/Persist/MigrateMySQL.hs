@@ -553,11 +553,7 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
 -- | SQL code to be executed when inserting an entity.
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
 insertSql' t cols _ vals True =
-  let keypair = case vals of
-                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
-                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in trace ("yes ISRManyKeys!!! sql="++show sql) $
-      ISRManyKeys sql keypair
+      ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
                 , escapeDBName t

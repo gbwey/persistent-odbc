@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 module Test1 where
 
-import Database.Persist
+import qualified Database.Persist as P
 import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
@@ -17,10 +17,16 @@ import System.Environment (getArgs)
 
 import qualified Database.Esqueleto as E
 import Database.Esqueleto (select,where_,(^.),from,Value(..))
-
+import Control.Applicative ((<$>),(<*>))
+import Data.Int
 import Debug.Trace
 
 share [mkPersist sqlOnlySettings, mkMigrate "migrateAll"] [persistLowerCase|
+TestA
+    name1 String 
+    name2 String 
+    UniqueNames name1 name2
+    deriving Show Eq
 TestBool 
     mybool Bool
     deriving Show Eq
@@ -55,8 +61,24 @@ TableManyMany composite json
 TableU 
   refone TableOneId
   name String
-  UniqueAsm name
+  UniqueSomeName name
 
+Person 
+  name String
+  age Int Maybe
+  deriving Eq Show
+Address
+  address String
+  country String
+  deriving Eq Show
+PersonAddressComp composite
+  person PersonId
+  address AddressId
+  deriving Eq Show
+PersonAddressNon
+  person PersonId
+  address AddressId
+  deriving Eq Show
 |]
 
 updatePersistValue :: Update v -> PersistValue
@@ -74,7 +96,8 @@ main = do
            "so" -> (MSSQL False,"dsn=mssql_test; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
            "o" -> (Oracle False,"dsn=oracle_test") -- pre oracle 12c [no support for limit and offset] 
            "on" -> (Oracle True,"dsn=oracle_test") -- >= oracle 12c [full limit and offset support]
-           xs -> error $ "unknown option:choose p m s so o on d found[" ++ xs ++ "]"
+           "q" -> (Sqlite,"dsn=sqlite_test")
+           xs -> error $ "unknown option:choose p m s so o on d q found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
     conn <- askSqlConn
@@ -84,6 +107,9 @@ main = do
     liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
+    
+    doesq
+    error $ "done"
     
     z1 <- insert $ TableOne "test1 aa"
     z2 <- insert $ TableOne "test1 bb"
@@ -210,3 +236,79 @@ main = do
     liftIO $ putStrLn $ "before selectKeys List 222"
     p4 <- selectKeysList [TableManyManyReftwo <=. c2] []
     liftIO $ print p4
+
+--doesq::IO ()
+doesq = do
+  deleteWhere ([]::[Filter PersonAddressNon])
+  deleteWhere ([]::[Filter PersonAddressComp])
+  deleteWhere ([]::[Filter Person])
+  deleteWhere ([]::[Filter Address])
+  let p@(Entity pk pv) = Entity undefined $ Person "Abraham" (Just 33)
+  let a@(Entity ak av) = Entity undefined $ Address "12 Abel Smith St" "NZ" 
+  let comp@(Entity compk compv) = Entity undefined $ PersonAddressComp pk ak
+  let non@(Entity nonk nonv) = Entity undefined $ PersonAddressNon pk ak
+  
+  p1 <- insert $ Person "Abraham" (Just 33)
+  a1 <- insert $ Address "12 Abel Smith St" "NZ" 
+  comp1 <- insert $ PersonAddressComp p1 a1
+  non1 <- insert $ PersonAddressNon p1 a1
+  liftIO $ print (p1,a1,comp1,non1)
+  let zz = PersistList [unKey p1, unKey a1]
+  liftIO $ print (zz, unKey comp1)
+  liftIO $ print $ unKey comp1 == zz
+  liftIO $ print (getInt64 (unKey non1))
+
+  p2 <- insert $ Person "Fred" Nothing
+  a2 <- insert $ Address "123 Baker Rd" "Aus" 
+  comp1 <- insert $ PersonAddressComp p2 a2
+  non1 <- insert $ PersonAddressNon p2 a2
+  
+  cs <- selectList [] [Desc PersonAddressCompPerson]
+  ns <- selectList [] [Desc PersonAddressNonPerson]
+  liftIO $ putStrLn $ "cs=" ++ show cs
+  liftIO $ putStrLn $ "ns=" ++ show ns
+
+  liftIO $ putStrLn $ "cs=" ++ show (map matchCompKV cs)
+  liftIO $ putStrLn $ "ns=" ++ show (map matchNonKV ns)
+  
+  liftIO $ putStrLn $ "cs==ns = " ++ show (map matchNonKV ns==map matchCompKV cs)
+  
+  [pa3,pa4] <- insertMany [ PersonAddressComp p1 a2
+                           , PersonAddressComp p2 a1
+                           ]
+  cs <- selectList [PersonAddressCompPerson ==. p1, PersonAddressCompAddress ==. a1] [Desc PersonAddressCompPerson]
+  ns <- selectList [PersonAddressNonPerson ==. p1, PersonAddressNonAddress ==. a1] [Desc PersonAddressNonPerson]
+  liftIO $ putStrLn $ "cs==ns = " ++ show (map matchNonKV ns==map matchCompKV cs)
+  
+  _ <- delete pa3
+  c <- count ([]::[Filter PersonAddressComp])
+  liftIO $ print (c,c==3)
+  one <- deleteWhereCount [PersonAddressCompPerson ==. p1, PersonAddressCompAddress ==. a1]
+  liftIO $ print (one,one==1)
+  
+  c <- count ([]::[Filter PersonAddressComp])
+  liftIO $ print (c,c==2)
+  
+  h4 <- get pa4
+  liftIO $ print pa4
+  --PersonAddressComp p2 a1
+  let k4a = maybe (Left "") matchCompV h4
+  let k4e = (,) <$> getInt64 (unKey p2) <*> getInt64 (unKey a1)
+  liftIO $ print (k4a,k4e,k4a==k4e)
+  
+  update pa3 [PersonAddressCompPerson =. p2] -- pa3 no longer points to the same row cos we changed the key!
+  --update pa
+  return ()
+
+matchCompKV (Entity k v) = matchCompV v
+matchNonKV  (Entity k v) = matchNonV v
+
+matchCompV :: PersonAddressComp -> Either Text (Int64, Int64)
+matchCompV PersonAddressComp { personAddressCompPerson = Key k1, personAddressCompAddress = Key k2 } = (,) <$> fromPersistValue k1 <*> fromPersistValue k2
+
+matchNonV :: PersonAddressNon -> Either Text (Int64, Int64)
+matchNonV  PersonAddressNon  { personAddressNonPerson = Key k1, personAddressNonAddress = Key k2 } = (,) <$> fromPersistValue k1 <*> fromPersistValue k2
+
+getInt64 :: PersistValue -> Either String Int64
+getInt64 (PersistInt64 a) = Right a
+getInt64 tp = Left $ show tp

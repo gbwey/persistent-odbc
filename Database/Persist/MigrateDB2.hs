@@ -501,11 +501,7 @@ udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
 insertSql' t cols _ vals True =
-  let keypair = case vals of
-                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
-                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in tracex ("yes ISRManyKeys!!! sql="++show sql) $
-      ISRManyKeys sql keypair 
+      ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
                 , T.unpack $ escape t

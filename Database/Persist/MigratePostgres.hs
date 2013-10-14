@@ -58,9 +58,8 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             if null old
                 then do
                     let idtxt = if composite then 
-                                  tracex ("found it!!! val=" ++ show val) $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
-                                else tracex ("not found val=" ++ show val) $
-                                             concat [T.unpack $ escape $ entityID val
+                                  concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
+                                else concat [T.unpack $ escape $ entityID val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
@@ -134,7 +133,6 @@ getColumns getter def = do
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
-    tracex ("getColumns: cs="++show cs++"\n\nus="++show us) $ return $ cs ++ us
   where
     getAll front = do
         x <- CL.head
@@ -235,10 +233,10 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
         stmt <- getter $ pack sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
-                     , tracex ("LET REF=ref["++show ref++"] tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") $ PersistText $ unDBName ref
+                     , PersistText $ unDBName ref
                      ] $$ do
             Just [PersistInt64 i] <- CL.head
-            tracex ("getRef PersistInt64 i="++show i++" tname[" ++ show tname ++ "] cname[" ++ show cname ++ "]") $ return $ if i == 0 then Nothing else Just (DBName "", ref)
+            return $ if i == 0 then Nothing else Just (DBName "", ref)
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -264,7 +262,7 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols = tracex ("findAlters col="++show col ++ " cols="++show cols) $ 
+findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
@@ -469,11 +467,7 @@ udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
 insertSql' t cols _ vals True =
-  let keypair = case vals of
-                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
-                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in tracex ("yes ISRManyKeys!!! sql="++show sql) $
-      ISRManyKeys sql keypair 
+      ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
                 , T.unpack $ escape t
@@ -485,7 +479,6 @@ insertSql' t cols _ vals True =
                 ]
 
 insertSql' t cols id' _ False = 
-  tracex "isrsingle" $
   ISRSingle $ pack $ concat
     [ "INSERT INTO "
     , T.unpack $ escape t

@@ -24,7 +24,6 @@ import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
 import Debug.Trace
---import Data.Char
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Oracle { oracle12c=ok} = 
@@ -184,7 +183,7 @@ getColumns getter def = do
      \WHERE a.table_name = ? \
      \and a.table_name=b.table_name \
      \and a.constraint_name=b.constraint_name \
-     \and b.constraint_type in ('U','P') \
+     \and b.constraint_type in ('U') \
                           \AND a.COLUMN_NAME <> ? \
                         \ORDER BY b.CONSTRAINT_NAME, \
                                  \a.COLUMN_NAME"
@@ -323,7 +322,7 @@ parseType "TIMESTAMP(6)"  = return SqlDayTime
 --parseType "newdate"    = return SqlDay
 --parseType "year"       = return SqlDay
 -- Other
-parseType b            = error $ "oracle: parseType no idea how to parse this b="++show b -- return $ trace ("OOPS "++show b) $ SqlOther $ T.decodeUtf8 b
+parseType b            = error $ "oracle: parseType no idea how to parse this b="++show b 
 
 
 ----------------------------------------------------------------------
@@ -338,7 +337,7 @@ getAlters :: Show a
           -> ([Column], [(DBName, [DBName])])
           -> ([AlterColumn'], [AlterTable])
 getAlters allDefs tblName (c1, u1) (c2, u2) =
-    (getAltersC c1 c2, getAltersU u1 u2)
+    (getAltersC c1 c2, reverse $ getAltersU u1 u2) -- have to drop constraints before adding them!!!
   where
     getAltersC [] old = concatMap dropColumn old
     getAltersC (new:news) old =
@@ -556,13 +555,14 @@ showAlter table (_, DropReference cname) = concat
     , escapeDBName cname
     ]
 
+-- ORA-00972: identifier is too long
 refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
-    DBName $ T.concat [table, "_", column, "_fkey"]
+    DBName $ T.take 30 $ T.concat [table, "_", column, "_fkey"]
 
 pkeyName :: DBName -> DBName
 pkeyName (DBName table) =
-    DBName $ T.concat [table, "_pkey"]
+    DBName $ T.take 30 $ T.concat [table, "_pkey"]
 
 ----------------------------------------------------------------------
 
@@ -577,11 +577,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
 -- | SQL code to be executed when inserting an entity.
 insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
 insertSql' t cols _ vals True =
-  let keypair = case vals of
-                  (PersistInt64 _:PersistInt64 _:_) -> map (\(PersistInt64 i) -> i) vals -- gb fix unsafe
-                  _ -> error $ "unexpected vals returned: vals=" ++ show vals
-  in trace ("yes ISRManyKeys!!! sql="++show sql) $
-      ISRManyKeys sql keypair 
+      ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
                 , escapeDBName t

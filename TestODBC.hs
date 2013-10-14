@@ -1,9 +1,3 @@
--- no errors but have to fix soon
-
--- postgres creates default each time but no errors [[handles drop fine when u remove default]]
--- mysql creates default each time but no errors [[handles drop fine when u remove default]]
--- oracle has no problem and doesnt create it each time [[doesnt handle drop well cos the default always exists even tho value is now null:ALTER TABLE "testlen" MODIFY "txt" DEFAULT NULL]]
-
 {-# LANGUAGE QuasiQuotes, TemplateHaskell, TypeFamilies, OverloadedStrings #-}
 {-# LANGUAGE GADTs, FlexibleContexts #-}
 {-# LANGUAGE EmptyDataDecls    #-}
