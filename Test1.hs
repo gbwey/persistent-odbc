@@ -309,6 +309,6 @@ matchCompV PersonAddressComp { personAddressCompPerson = Key k1, personAddressCo
 matchNonV :: PersonAddressNon -> Either Text (Int64, Int64)
 matchNonV  PersonAddressNon  { personAddressNonPerson = Key k1, personAddressNonAddress = Key k2 } = (,) <$> fromPersistValue k1 <*> fromPersistValue k2
 
-getInt64 :: PersistValue -> Either String Int64
+getInt64 :: PersistValue -> Either Text Int64
 getInt64 (PersistInt64 a) = Right a
-getInt64 tp = Left $ show tp
+getInt64 tp = Left $ T.pack $ show tp

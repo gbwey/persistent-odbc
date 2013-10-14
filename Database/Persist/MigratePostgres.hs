@@ -133,6 +133,7 @@ getColumns getter def = do
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
+    return $ cs ++ us
   where
     getAll front = do
         x <- CL.head
