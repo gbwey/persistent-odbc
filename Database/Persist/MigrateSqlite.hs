@@ -37,30 +37,30 @@ getMigrationStrategy dbtype@Sqlite {} =
                           }
 getMigrationStrategy dbtype = error $ "Sqlite: calling with invalid dbtype " ++ show dbtype
 
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols _ vals True =
+insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' ent vals =
+  case entityPrimary ent of
+    Just pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
-                , escape' t
+                , escape' $ entityDB ent
                 , "("
-                , intercalate "," $ map (escape' . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , intercalate "," $ map (escape' . fieldDB) $ entityFields ent
                 , ") VALUES("
-                , intercalate "," (map (const "?") cols)
+                , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-
-insertSql' t cols _ _ _ =
-    ISRInsertGet (pack ins) sel
+    Nothing -> ISRInsertGet (pack ins) sel
   where
     sel = "SELECT last_insert_rowid()"
     ins = concat
         [ "INSERT INTO "
-        , escape' t
+            , escape' $ entityDB ent
         , "("
-        , intercalate "," $ map (escape' . fieldDB) cols
+            , intercalate "," $ map (escape' . fieldDB) $ entityFields ent
         , ") VALUES("
-        , intercalate "," (map (const "?") cols)
+            , intercalate "," (map (const "?") $ entityFields ent)
         , ")"
         ]
 
@@ -84,8 +84,7 @@ migrate' :: [EntityDef a]
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
     let (cols, uniqs) = mkColumns allDefs val
-    let composite = "composite" `elem` entityAttrs val
-    let newSql = mkCreateTable False def (filter (not . safeToRemove val . cName) cols, uniqs) composite
+    let newSql = mkCreateTable False def (filter (not . safeToRemove val . cName) cols, uniqs)
     stmt <- getter "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
     oldSql' <- runResourceT
              $ stmtQuery stmt [PersistText $ unDBName table] $$ go
@@ -105,6 +104,7 @@ migrate' allDefs getter val = do
         case x of
             Nothing -> return Nothing
             Just [PersistText y] -> return $ Just y
+            Just [PersistByteString y] -> return $ Just $ T.decodeUtf8 y
             Just y -> error $ "Unexpected result from sqlite_master: " ++ show y
 
 -- | Check if a column name is listed as the "safe to remove" in the entity
@@ -126,13 +126,22 @@ getCopyTable allDefs getter val = do
     let newCols = filter (not . safeToRemove def) $ map cName cols
     let common = filter (`elem` oldCols) newCols
     let id_ = entityID val
-    return [ (False, tmpSql)
+    let ret = case entityPrimary val of
+          Just _ -> [ (False, tmpSql)
+           , (False, copyToTemp common)
+           , (common /= filter (not . safeToRemove def) oldCols, pack dropOld)
+           , (False, newSql)
+           , (False, copyToFinal newCols)
+           , (False, pack dropTmp)
+           ]
+          Nothing -> [ (False, tmpSql)
            , (False, copyToTemp $ id_ : common)
            , (common /= filter (not . safeToRemove def) oldCols, pack dropOld)
            , (False, newSql)
            , (False, copyToFinal $ id_ : newCols)
            , (False, pack dropTmp)
            ]
+    trace ("\n\ngetCopyTable ret="++show ret++ "\n\n") $ return ret  
   where
 
     def = val
@@ -143,14 +152,16 @@ getCopyTable allDefs getter val = do
             Just (_:PersistText name:_) -> do
                 names <- getCols
                 return $ name : names
+            Just (_:PersistByteString name:_) -> do
+                names <- getCols
+                trace ("getcols persistbytestring name=" ++ show name) $ return $ T.decodeUtf8 name : names
             Just y -> error $ "Invalid result from PRAGMA table_info: " ++ show y
     table = entityDB def
     tableTmp = DBName $ unDBName table `T.append` "_backup"
     (cols, uniqs) = mkColumns allDefs val
     cols' = filter (not . safeToRemove def . cName) cols
-    composite = "composite" `elem` entityAttrs def
-    newSql = mkCreateTable False def (cols', uniqs) composite
-    tmpSql = mkCreateTable True def { entityDB = tableTmp } (cols', uniqs) composite
+    newSql = mkCreateTable False def (cols', uniqs)
+    tmpSql = mkCreateTable True def { entityDB = tableTmp } (cols', uniqs)
     dropTmp = "DROP TABLE " ++ escape' tableTmp
     dropOld = "DROP TABLE " ++ escape' table
     copyToTemp common = pack $ concat
@@ -175,32 +186,27 @@ getCopyTable allDefs getter val = do
 escape' :: DBName -> String
 escape' = T.unpack . escape
 
-mkCreateTable :: Bool -> EntityDef a -> ([Column], [UniqueDef]) -> Bool -> Text
-mkCreateTable isTemp entity (cols, uniqs) True = T.concat
+mkCreateTable :: Bool -> EntityDef a -> ([Column], [UniqueDef]) -> Text
+mkCreateTable isTemp entity (cols, uniqs) = T.concat
     [ "CREATE"
     , if isTemp then " TEMP" else ""
     , " TABLE "
     , escape $ entityDB entity
     , "("
     , T.drop 1 $ T.concat $ map sqlColumn cols
-    , ", PRIMARY KEY "
-    , "("
-    , T.intercalate "," $ map (escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields entity
-    , ")"
-    , ")"
-    ]
-mkCreateTable isTemp entity (cols, uniqs) False = T.concat
-    [ "CREATE"
-    , if isTemp then " TEMP" else ""
-    , " TABLE "
-    , escape $ entityDB entity
-    , "("
-    , escape $ entityID entity
-    , " INTEGER PRIMARY KEY"
-    , T.concat $ map sqlColumn cols
+    , ","
+    , idx
     , T.concat $ map sqlUnique uniqs
     , ")"
     ]
+    -- gb convert to use text directly
+    where idx=case entityPrimary entity of
+                  Just pdef -> T.pack $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
+                  Nothing   -> T.pack $ concat [T.unpack $ escape $ entityID entity
+                                        ," INTEGER PRIMARY KEY "]
+          cols' = case entityPrimary entity of
+                    Just _ -> drop 1 cols
+                    Nothing -> cols
 
 sqlColumn :: Column -> Text
 sqlColumn (Column name isNull typ def _cn _maxLen ref) = T.concat

@@ -55,7 +55,7 @@ Personx
     name String Eq Ne Desc
     age Int Lt Asc
     color String Maybe Eq Ne
-    PersonxNameKey name
+    Unique PersonxNameKey name
     deriving Show
 
 Testnum
@@ -69,19 +69,19 @@ Testnum
 Foo
     bar String
     deriving Show
-Person
+Personz
     name String
     age Int Maybe
     deriving Show
 BlogPost
     title String
-    authorId PersonId
+    authorId PersonzId
     deriving Show
 
 Asm
   name Text
   description Text
-  UniqueAsm name
+  Unique MyUniqueAsm name
 --  deriving Typeable
   deriving Show
   
@@ -89,13 +89,13 @@ Xsd
   name Text
   description Text
   asmid AsmId
-  UniqueXsd name -- global
+  Unique MyUniqueXsd name -- global
 --  deriving Typeable
   deriving Show
   
 Ftype
   name Text
-  UniqueFtype name
+  Unique MyUniqueFtype name
 --  deriving Typeable
   deriving Show
 
@@ -105,8 +105,8 @@ Line
   pos Int
   ftypeid FtypeEnum
   xsdid XsdId
-  EinzigName xsdid name  -- within an xsd:so can repeat fieldnames in different xsds
-  EinzigPos xsdid pos   
+  Unique EinzigName xsdid name  -- within an xsd:so can repeat fieldnames in different xsds
+  Unique EinzigPos xsdid pos   
 --  deriving Typeable
   deriving Show
   
@@ -116,7 +116,7 @@ Interface
   fname Text
   ftypeid FtypeId
   iname FtypeEnum
-  UniqueInterface name
+  Unique MyUniqueInterface name
 --  deriving Typeable
   deriving Show
 
@@ -183,9 +183,9 @@ main = do
           deleteWhere ([]::[Filter Asm])
       _ -> do
           deleteCascadeWhere ([]::[Filter Asm])
-          deleteCascadeWhere ([]::[Filter Person])
+          deleteCascadeWhere ([]::[Filter Personz])
 
-    deleteWhere ([]::[Filter Person])
+    deleteWhere ([]::[Filter Personz])
     deleteWhere ([]::[Filter Persony])
     deleteWhere ([]::[Filter Personx])
     deleteWhere ([]::[Filter Testother])
@@ -209,13 +209,13 @@ testbase dbtype = do
     liftIO $ putStrLn $ "a1=" ++ show a1
     aa <- selectList ([]::[Filter Foo]) []
     liftIO $ putStrLn $ "aa=" ++ show aa
-    johnId <- insert $ Person "John Doe" $ Just 35
+    johnId <- insert $ Personz "John Doe" $ Just 35
     liftIO $ putStrLn $ "johnId[" ++ show johnId ++ "]"
-    janeId <- insert $ Person "Jane Doe" Nothing
+    janeId <- insert $ Personz "Jane Doe" Nothing
     liftIO $ putStrLn $ "janeId[" ++ show janeId ++ "]"
 
-    aa <- selectList ([]::[Filter Person]) []
-    unless (length aa == 2) $ error $ "wrong number of Person rows " ++ show aa
+    aa <- selectList ([]::[Filter Personz]) []
+    unless (length aa == 2) $ error $ "wrong number of Personz rows " ++ show aa
 
     _ <- insert $ BlogPost "My fr1st p0st" johnId
     _ <- insert $ BlogPost "One more for good measure" johnId
@@ -226,7 +226,7 @@ testbase dbtype = do
     --liftIO $ print (oneJohnPost :: [Entity BlogPost])
 
     john <- get johnId
-    liftIO $ print (john :: Maybe Person)
+    liftIO $ print (john :: Maybe Personz)
     dt <- liftIO getCurrentTime
     v1 <- insert $ Testnum 100 Nothing "hello" (Just "world") dt Nothing
     v2 <- insert $ Testnum 100 (Just 222) "dude" Nothing dt (Just "something")
@@ -327,7 +327,7 @@ test1 dbtype = do
     liftIO $ print pid
 
     aa <- selectList ([]::[Filter Persony]) []
-    unless (length aa == 4) $ error $ "wrong number of Person rows " ++ show aa
+    unless (length aa == 4) $ error $ "wrong number of Personz rows " ++ show aa
     liftIO $ putStrLn $ "persony " ++ show aa
     let sql = case dbtype of 
                 MSSQL {} -> "SELECT [name] FROM [persony] WHERE [name] LIKE '%Snoyman%'"
@@ -342,7 +342,7 @@ test2 = do
     liftIO $ print aaa
 
     aa <- selectList ([]::[Filter Test0]) []
-    unless (length aa == 1) $ error $ "wrong number of Person rows " ++ show aa
+    unless (length aa == 1) $ error $ "wrong number of Personz rows " ++ show aa
         
 test3::SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test3 = do    

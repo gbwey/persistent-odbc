@@ -48,15 +48,12 @@ migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
-    let composite = "composite" `elem` entityAttrs val
     case (idClmn, old, partitionEithers old) of
       -- Nothing found, create everything
       ([], [], _) -> do
-        let idtxt = if composite then 
-                      trace ("found it!!! val=" ++ show val) $ " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val) <> ")"
-                    else trace ("not found val=" ++ show val) $
-                                 concat [escapeDBName $ entityID val
-                            , " BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY"]
+        let idtxt = case entityPrimary val of
+                      Just pdef -> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . snd) $ primaryFields pdef) <> ")"
+                      Nothing   -> concat [escapeDBName $ entityID val, " BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY"]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATE TABLe "
@@ -64,7 +61,7 @@ migrate' allDefs getter val = do
                 , "("
                 , idtxt
                 , if null (fst new) then [] else ","
-                , intercalate "," $ map (\x -> showColumn x) $ fst new
+                , intercalate "," $ map showColumn $ fst new
                 , ")"
                 ]
         let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
@@ -424,7 +421,6 @@ showSqlType SqlString  Nothing    = "TEXT CHARACTER SET utf8"
 showSqlType SqlString  (Just i)   = "VARCHAR(" ++ show i ++ ") CHARACTER SET utf8"
 showSqlType SqlTime    _          = "TIME"
 showSqlType (SqlOther t) _        = T.unpack t
-showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -551,27 +547,28 @@ escapeDBName (DBName s) = '`' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "`"
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols _ vals True =
+insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' ent vals =
+  case entityPrimary ent of
+    Just pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
-                , escapeDBName t
+                , escapeDBName $ entityDB ent
                 , "("
-                , intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
                 , ") VALUES("
-                , intercalate "," (map (const "?") cols)
+                , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-
-insertSql' t cols _ _ _ = ISRInsertGet doInsert "SELECT LAST_INSERT_ID()"
+    Nothing -> ISRInsertGet doInsert "SELECT LAST_INSERT_ID()"
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
-        , escapeDBName t
+        , escapeDBName $ entityDB ent
         , "("
-        , intercalate "," $ map (escapeDBName . fieldDB) cols
+        , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
         , ") VALUES("
-        , intercalate "," (map (const "?") cols)
+        , intercalate "," (map (const "?") $ entityFields ent)
         , ")"
         ]

@@ -46,7 +46,6 @@ migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old, mseq) <- getColumns getter val
     let new = second (map udToPair) $ mkColumns allDefs val
-    let composite = "composite" `elem` entityAttrs val
     let addSequence = AddSequence $ concat
             [ "CREATE SEQUENCE " 
             ,getSeqNameEscaped name
@@ -55,11 +54,9 @@ migrate' allDefs getter val = do
     case (idClmn, old, partitionEithers old, mseq) of
       -- Nothing found, create everything
       ([], [], _, _) -> do
-        let idtxt = if composite then
-                      trace ("found it!!! val=" ++ show val) $ " CONSTRAINT " <> escapeDBName (pkeyName (entityDB val)) <> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val) <> ")"
-                    else trace ("not found val=" ++ show val) $
-                                 concat [escapeDBName $ entityID val
-                            , " NUMBER NOT NULL PRIMARY KEY "]
+        let idtxt = case entityPrimary val of
+                      Just pdef -> " CONSTRAINT " <> escapeDBName (pkeyName (entityDB val)) <> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . snd) $ primaryFields pdef) <> ")"
+                      Nothing -> concat [escapeDBName $ entityID val, " NUMBER NOT NULL PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATE TABLe "
@@ -83,7 +80,8 @@ migrate' allDefs getter val = do
         let (acs, ats) = getAlters allDefs name new $ partitionEithers old'
             acs' = map (AlterColumn name) acs
             ats' = map (AlterTable  name) ats
-        return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)
+        let ret=Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)    
+        trace ("\nmigrate' acs = "++show acs ++"\nmigrate' ats =" ++ show ats ++ " ret="++show ret) $ return ret -- return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)
       -- Errors
       (_, _, (errs, _), _) -> return $ Left errs
 
@@ -108,7 +106,7 @@ addReference allDefs name = AddReference name id_
                          ++ " (allDefs = " ++ show allDefs ++ ")")
                   id $ do
                     entDef <- find ((== name) . entityDB) allDefs
-                    return (entityID entDef)
+                    return $ entityID entDef
 
 data AlterColumn = Change Column
                  | Add' Column
@@ -446,7 +444,6 @@ showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
 showSqlType (SqlOther t) _        = error ("oops in showSqlType " ++ show t)  -- $ T.unpack t
-showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
@@ -551,7 +548,7 @@ showAlter table (n, AddReference t2 id2) = concat
 showAlter table (_, DropReference cname) = concat
     [ "ALTER TABLE "
     , escapeDBName table
-    , " DROP FOREIGN KEY "
+    , " DROP CONSTRAINT "
     , escapeDBName cname
     ]
 
@@ -575,32 +572,33 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols _ vals True =
+insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' ent vals =
+  case entityPrimary ent of
+    Just pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
-                , escapeDBName t
+                , escapeDBName $ entityDB ent
                 , "("
-                , intercalate "," $ map (escapeDBName . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
                 , ") VALUES("
-                , intercalate "," (map (const "?") cols)
+                , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-
-insertSql' t cols idcol _ False = ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped t ++ ".currval as number) from dual")
+    Nothing -> ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped (entityDB ent) ++ ".currval as number) from dual")
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
-        , escapeDBName t
+        , escapeDBName $ entityDB ent
         , "("
-        , escapeDBName idcol
-        , if null cols then "" else ","
-        , intercalate "," $ map (escapeDBName . fieldDB) cols
+        , escapeDBName $ entityID ent
+        , if null (entityFields ent) then "" else ","
+        , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
         , ") VALUES("
-        , getSeqNameEscaped t ++ ".nextval"
-        , if null cols then "" else ","
-        , intercalate "," (map (const "?") cols)
+        , getSeqNameEscaped (entityDB ent) ++ ".nextval"
+        , if null (entityFields ent) then "" else ","
+        , intercalate "," (map (const "?") $ entityFields ent)
         , ")"
         ]
 

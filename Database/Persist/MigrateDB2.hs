@@ -62,12 +62,12 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let new = first (filter $ not . safeToRemove val . cName)
                     $ second (map udToPair)
                     $ mkColumns allDefs val
-            let composite = "composite" `elem` entityAttrs val
             if null old
                 then do
-                    let idtxt = if composite then 
-                                  tracex ("found it!!! val=" ++ show val) $ concat [" CONSTRAINT ", T.unpack (escape (pkeyName (entityDB val))), " PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
-                                else tracex ("not found val=" ++ show val) $
+                    let idtxt = case entityPrimary val of
+                                  Just pdef -> tracex ("found it!!! val=" ++ show val) $ 
+                                                concat [" CONSTRAINT ", T.unpack (escape (pkeyName (entityDB val))), " PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
+                                  Nothing   -> tracex ("not found val=" ++ show val) $
                                              concat [T.unpack $ escape $ entityID val
                                         , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
                     let addTable = AddTable $ concat
@@ -367,7 +367,6 @@ showSqlType SqlBool Nothing = "CHARACTER"
 showSqlType SqlBool (Just 1) = "CHARACTER"
 showSqlType SqlBool (Just n) = "CHARACTER(" ++ show n ++ ")"
 showSqlType (SqlOther t) _ = T.unpack t
-showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 showAlterDb :: AlterDB -> (Bool, Text)
 showAlterDb (AddTable s) = (False, pack s)
@@ -499,30 +498,30 @@ pkeyName (DBName table) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols _ vals True =
+insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' ent vals =
+  case entityPrimary ent of
+    Just pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
-                , T.unpack $ escape t
+                , T.unpack $ escape $ entityDB ent
                 , "("
-                , intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
                 , ") VALUES("
-                , intercalate "," (map (const "?") cols)
+                , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-
-insertSql' t cols _ vals False = 
-  tracex "isrinsertget" $
+    Nothing -> 
     ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
     where
       doInsert = pack $ concat
         [ "INSERT INTO "
-        , T.unpack $ escape t
+          , T.unpack $ escape $ entityDB ent
         , "("
-        , intercalate "," $ map (T.unpack . escape . fieldDB) cols
+          , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
         , ") VALUES("
-        , intercalate "," $ zipWith doValue cols vals
+          , intercalate "," $ zipWith doValue (entityFields ent) vals
         , ")"
         ]
       doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"

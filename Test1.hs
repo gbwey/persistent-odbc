@@ -20,12 +20,13 @@ import Database.Esqueleto (select,where_,(^.),from,Value(..))
 import Control.Applicative ((<$>),(<*>))
 import Data.Int
 import Debug.Trace
+import Control.Monad (when)
 
 share [mkPersist sqlOnlySettings, mkMigrate "migrateAll"] [persistLowerCase|
 TestA
     name1 String 
     name2 String 
-    UniqueNames name1 name2
+    Unique MyNames name1 name2
     deriving Show Eq
 TestBool 
     mybool Bool
@@ -46,18 +47,17 @@ TableThree json
 TableFour
     namefour Int
     deriving Show Eq
-TableMany composite json
+TableMany json
     refone TableOneId
     reftwo TableTwoId
+    Primary refone reftwo
     deriving Show Eq
-TableManyMany composite json
+TableManyMany json
     refone TableOneId
     reftwo TableTwoId
     refthree TableThreeId
+    Primary refone reftwo refthree
     deriving Show Eq
---TableInvalid composite 
---    refone TableOneId
---    notafkey String
 TableU 
   refone TableOneId
   name String
@@ -71,13 +71,22 @@ Address
   address String
   country String
   deriving Eq Show
-PersonAddressComp composite
+PersonAddressComp
   person PersonId
   address AddressId
+  Primary person address
   deriving Eq Show
 PersonAddressNon
   person PersonId
   address AddressId
+  deriving Eq Show
+
+PersonAddressTest
+  person PersonId
+  address AddressId
+  name String
+  age Int Maybe
+  Primary person address
   deriving Eq Show
 |]
 
@@ -109,8 +118,9 @@ main = do
     liftIO $ putStrLn "after migration"
     
     doesq
-    error $ "done"
+    when True $ dostuff dbtype
     
+dostuff dbtype = do    
     z1 <- insert $ TableOne "test1 aa"
     z2 <- insert $ TableOne "test1 bb"
     a1 <- insert $ TableOne "test1 cc"
@@ -241,6 +251,7 @@ main = do
 doesq = do
   deleteWhere ([]::[Filter PersonAddressNon])
   deleteWhere ([]::[Filter PersonAddressComp])
+  deleteWhere ([]::[Filter PersonAddressTest])
   deleteWhere ([]::[Filter Person])
   deleteWhere ([]::[Filter Address])
   let p@(Entity pk pv) = Entity undefined $ Person "Abraham" (Just 33)
@@ -250,6 +261,10 @@ doesq = do
   
   p1 <- insert $ Person "Abraham" (Just 33)
   a1 <- insert $ Address "12 Abel Smith St" "NZ" 
+
+  abc <- insert $ PersonAddressTest p1 a1 "dude" $ Just 888
+  liftIO $ print abc
+
   comp1 <- insert $ PersonAddressComp p1 a1
   non1 <- insert $ PersonAddressNon p1 a1
   liftIO $ print (p1,a1,comp1,non1)

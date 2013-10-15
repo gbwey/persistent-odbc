@@ -21,7 +21,7 @@ sqlite = Sqlite
 data MigrationStrategy = MigrationStrategy { 
                             dbmsLimitOffset :: (Int,Int) -> Bool -> Text -> Text 
                            ,dbmsMigrate :: Show a => [EntityDef a] -> (Text -> IO Statement) -> EntityDef SqlType -> IO (Either [Text] [(Bool, Text)])
-                           ,dbmsInsertSql :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
+                           ,dbmsInsertSql :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
                            ,dbmsEscape :: DBName -> Text
                            ,dbmsType :: DBType
                            }

@@ -25,6 +25,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 
 import Database.Persist.ODBCTypes
+import Data.Maybe (isJust)
 import Debug.Trace
 
 tracex::String -> a -> a
@@ -54,12 +55,12 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let new = first (filter $ not . safeToRemove val . cName)
                     $ second (map udToPair)
                     $ mkColumns allDefs val
-            let composite = "composite" `elem` entityAttrs val
+            let composite = isJust $ entityPrimary val
             if null old
                 then do
-                    let idtxt = if composite then 
-                                  concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) $ entityFields val, ")"]
-                                else concat [T.unpack $ escape $ entityID val
+                    let idtxt = case entityPrimary val of
+                                  Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
+                                  Nothing   -> concat [T.unpack $ escape $ entityID val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
@@ -338,7 +339,6 @@ showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
 showSqlType SqlBlob _ = "BYTEA"
 showSqlType SqlBool _ = "BOOLEAN"
 showSqlType (SqlOther t) _ = T.unpack t
-showSqlType (SqlManyKeys t) _ = error $ "this should not be called:internally used for composite primary keys " ++ show t
 
 showAlterDb :: AlterDB -> (Bool, Text)
 showAlterDb (AddTable s) = (False, pack s)
@@ -466,27 +466,28 @@ refName (DBName table) (DBName column) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSql' :: DBName -> [FieldDef SqlType] -> DBName -> [PersistValue] -> Bool -> InsertSqlResult
-insertSql' t cols _ vals True =
+insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' ent vals =
+  case entityPrimary ent of
+    Just pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
-                , T.unpack $ escape t
+                , T.unpack $ escape $ entityDB ent
                 , "("
-                , intercalate "," $ map (T.unpack . escape . fieldDB) $ filter (\fd -> null $ fieldManyDB fd) cols
+                , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
                 , ") VALUES("
-                , intercalate "," (map (const "?") cols)
+                , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-
-insertSql' t cols id' _ False = 
+    Nothing -> 
   ISRSingle $ pack $ concat
     [ "INSERT INTO "
-    , T.unpack $ escape t
+        , T.unpack $ escape $ entityDB ent
     , "("
-    , intercalate "," $ map (T.unpack . escape . fieldDB) cols
+        , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
     , ") VALUES("
-    , intercalate "," (map (const "?") cols)
+        , intercalate "," (map (const "?") $ entityFields ent)
     , ") RETURNING "
-    , T.unpack $ escape id'
+        , T.unpack $ escape $ entityID ent
     ]
