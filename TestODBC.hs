@@ -166,8 +166,9 @@ main = do
            "so" -> (MSSQL False,"dsn=mssql_test; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
            "o" -> (Oracle False,"dsn=oracle_test") -- pre oracle 12c [no support for limit and offset] 
            "on" -> (Oracle True,"dsn=oracle_test") -- >= oracle 12c [full limit and offset support]
-           "q" -> (Sqlite,"dsn=sqlite_test")
-           xs -> error $ "unknown option:choose p m s so o on d q found[" ++ xs ++ "]"
+           "q" -> (Sqlite False,"dsn=sqlite_test")
+           "qn" -> (Sqlite True,"dsn=sqlite_test")
+           xs -> error $ "unknown option:choose p m s so o on d q qn found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
     conn <- askSqlConn

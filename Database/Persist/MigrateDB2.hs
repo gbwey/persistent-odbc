@@ -23,7 +23,7 @@ import Data.Text (pack,Text)
 
 import Data.Either (partitionEithers)
 import Control.Arrow
-import Data.List (intercalate, sort, groupBy)
+import Data.List (find, intercalate, sort, groupBy)
 import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -59,9 +59,9 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
     case partitionEithers old of
         ([], old'') -> do
             let old' = partitionEithers old''
-            let new = first (filter $ not . safeToRemove val . cName)
-                    $ second (map udToPair)
-                    $ mkColumns allDefs val
+            let (newcols', udefs, fdefs) = mkColumns allDefs val
+            let newcols = filter (not . safeToRemove val . cName) newcols'
+            let udspair = map udToPair udefs
             if null old
                 then do
                     let idtxt = case entityPrimary val of
@@ -76,16 +76,18 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                             , T.unpack $ escape name
                             , "("
                             , idtxt
-                            , if null (fst new) then [] else ","
-                            , intercalate "," $ map showColumn $ fst new
+                            , if null newcols then [] else ","
+                            , intercalate "," $ map showColumn newcols
                             , ")"
                             ]
-                    let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
+                    let uniques = flip concatMap udspair $ \(uname, ucols) ->
                             [AlterTable name $ AddUniqueConstraint uname ucols]
-                        references = mapMaybe (getAddReference name) $ fst new
-                    return $ Right $ addTable : uniques ++ references
+                        foreigns = mapMaybe (getAddReference allDefs name) newcols
+                        foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+                                                    in AlterColumn name (foreignRefTableDBName fdef, AddReference childfields parentfields)) fdefs
+                    return $ Right $ addTable : uniques ++ foreigns ++ foreignsAlt
                 else do
-                    let (acs, ats) = getAlters val new old'
+                    let (acs, ats) = getAlters val (newcols,udspair) old'
                     let acs' = map (AlterColumn name) acs
                     let ats' = map (AlterTable name) ats
                     return $ Right $ acs' ++ ats'
@@ -95,7 +97,7 @@ type SafeToRemove = Bool
 
 data AlterColumn = Type SqlType | IsNull | NotNull | Add' Column | Drop SafeToRemove
                  | Default String | NoDefault | Update' String
-                 | AddReference DBName | DropReference DBName
+                 | AddReference [DBName] [DBName] | DropReference DBName
 type AlterColumn' = (DBName, AlterColumn)
 
 data AlterTable = AddUniqueConstraint DBName [DBName]
@@ -293,7 +295,7 @@ findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) co
             let refDrop Nothing = []
                 refDrop (Just (_, cname)) = [(name, DropReference cname)]
                 refAdd Nothing = []
-                refAdd (Just (tname, _)) = [(name, AddReference tname)]
+                refAdd (Just (tname, _)) = [(name, AddReference [tname] [name])]
                 modRef =
                     if fmap snd ref == fmap snd ref'
                         then []
@@ -334,11 +336,17 @@ cmpdef (Just def) (Just def') | def==def' = True
 cmpdef _ _ = False
 
 -- | Get the references to be added to a table for the given column.
-getAddReference :: DBName -> Column -> Maybe AlterDB
-getAddReference table (Column n _nu _ _def _defConstraintName _maxLen ref) =
+getAddReference :: [EntityDef a] -> DBName -> Column -> Maybe AlterDB
+getAddReference allDefs table (Column n _nu _ _def _defConstraintName _maxLen ref) =
     case ref of
         Nothing -> Nothing
-        Just (s, _) -> Just $ AlterColumn table (n, AddReference s)
+        Just (s, z) -> trace ("\n\ngetaddreference table="++show table++" s="++show s++" z=" ++ show z++ " n="++show n++"\n\n") $ 
+                       Just $ AlterColumn table (s, AddReference [n] [id_])
+                          where
+                            id_ = maybe (error $ "Could not find ID of entity " ++ show table)
+                                        id $ do
+                                          entDef <- find ((== table) . entityDB) allDefs
+                                          return (entityID entDef)
 
 showColumn :: Column -> String
 showColumn (Column n nu sqlType def defConstraintName _maxLen _ref) = concat
@@ -461,15 +469,18 @@ showAlter table (n, Update' s) = concat
     , T.unpack $ escape n
     , " IS NULL"
     ]
-showAlter table (n, AddReference t2) = concat
+showAlter table (n, AddReference t2 id2) = concat
     [ "ALTER TABLE "
     , T.unpack $ escape table
     , " ADD CONSTRAINT "
-    , T.unpack $ escape $ refName table n
+    , T.unpack $ escape $ refNames table t2
     , " FOREIGN KEY("
-    , T.unpack $ escape n
+    , T.unpack $ T.intercalate "," $ map escape t2
     , ") REFERENCES "
-    , T.unpack $ escape t2
+    , T.unpack $ escape n
+    , "("
+    , T.unpack $ T.intercalate "," $ map escape id2
+    , ")"
     ]
 showAlter table (_, DropReference cname) = concat
     [ "ALTER TABLE "
@@ -490,6 +501,11 @@ escape (DBName s) =
 refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
     DBName $ T.concat [table, "_", column, "_fkey"]
+
+refNames :: DBName -> [DBName] -> DBName
+refNames (DBName table) dbnames =
+    let columns = T.intercalate "_" $ map unDBName dbnames
+    in DBName $ T.concat [table, "_", columns, "_fkey"]
 
 pkeyName :: DBName -> DBName
 pkeyName (DBName table) =
@@ -513,17 +529,17 @@ insertSql' ent vals =
                 , ")"
                 ]
     Nothing -> 
-    ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
-    where
-      doInsert = pack $ concat
-        [ "INSERT INTO "
+      ISRInsertGet doInsert "select IDENTITY_VAL_LOCAL() as last_cod from sysibm.sysdummy1" 
+      where
+        doInsert = pack $ concat
+          [ "INSERT INTO "
           , T.unpack $ escape $ entityDB ent
-        , "("
+          , "("
           , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
-        , ") VALUES("
+          , ") VALUES("
           , intercalate "," $ zipWith doValue (entityFields ent) vals
-        , ")"
-        ]
-      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "blob(?)" -- tracex "\n\nin blob with a value\n\n" "blob(?)"
-      doValue _ _ = "?"
+          , ")"
+          ]
+        doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc db2 currently doesn't support inserting nulls in a blob field f=" ++ show f -- tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+        doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "blob(?)" -- tracex "\n\nin blob with a value\n\n" "blob(?)"
+        doValue _ _ = "?"

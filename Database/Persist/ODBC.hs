@@ -44,6 +44,7 @@ import Data.Int (Int64)
 import Data.Conduit
 import Database.Persist.ODBCTypes
 import qualified Data.List as L
+import Debug.Trace
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -98,7 +99,7 @@ findDBMS dvs@(driver,ver,serverver)
     | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber dvs>=11
     | driver=="MySQL" = MySQL 
     | "PostgreSQL" `L.isPrefixOf` driver = Postgres  
-    | "SQLite" `L.isPrefixOf` driver = Sqlite
+    | "SQLite" `L.isPrefixOf` driver = trace ("sqlite driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]") $ Sqlite False
     | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]\nExplicitly set the type of dbms using DBType and try again!"
 
 getServerVersionNumber::(String, String, String) -> Integer

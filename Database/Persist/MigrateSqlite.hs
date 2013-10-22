@@ -1,3 +1,4 @@
+-- add foreign key support??
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -27,7 +28,7 @@ import Database.Persist.ODBCTypes
 import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
-getMigrationStrategy dbtype@Sqlite {} = 
+getMigrationStrategy dbtype@Sqlite { sqlite3619 = fksupport } = 
      MigrationStrategy
                           { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT -1" 
                            ,dbmsMigrate=migrate'
@@ -52,17 +53,17 @@ insertSql' ent vals =
                 , ")"
                 ]
     Nothing -> ISRInsertGet (pack ins) sel
-  where
-    sel = "SELECT last_insert_rowid()"
-    ins = concat
-        [ "INSERT INTO "
+      where
+        sel = "SELECT last_insert_rowid()"
+        ins = concat
+            [ "INSERT INTO "
             , escape' $ entityDB ent
-        , "("
+            , "("
             , intercalate "," $ map (escape' . fieldDB) $ entityFields ent
-        , ") VALUES("
+            , ") VALUES("
             , intercalate "," (map (const "?") $ entityFields ent)
-        , ")"
-        ]
+            , ")"
+            ]
 
 showSqlType :: SqlType -> Text
 showSqlType SqlString = "VARCHAR"
@@ -83,7 +84,7 @@ migrate' :: [EntityDef a]
          -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
-    let (cols, uniqs) = mkColumns allDefs val
+    let (cols, uniqs, fdefs) = mkColumns allDefs val
     let newSql = mkCreateTable False def (filter (not . safeToRemove val . cName) cols, uniqs)
     stmt <- getter "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
     oldSql' <- runResourceT
@@ -158,7 +159,7 @@ getCopyTable allDefs getter val = do
             Just y -> error $ "Invalid result from PRAGMA table_info: " ++ show y
     table = entityDB def
     tableTmp = DBName $ unDBName table `T.append` "_backup"
-    (cols, uniqs) = mkColumns allDefs val
+    (cols, uniqs, fdefs) = mkColumns allDefs val
     cols' = filter (not . safeToRemove def . cName) cols
     newSql = mkCreateTable False def (cols', uniqs)
     tmpSql = mkCreateTable True def { entityDB = tableTmp } (cols', uniqs)
@@ -198,7 +199,7 @@ mkCreateTable isTemp entity (cols, uniqs) = T.concat
     , idx
     , T.concat $ map sqlUnique uniqs
     , ")"
-    ]
+    ] 
     -- gb convert to use text directly
     where idx=case entityPrimary entity of
                   Just pdef -> T.pack $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
@@ -207,7 +208,7 @@ mkCreateTable isTemp entity (cols, uniqs) = T.concat
           cols' = case entityPrimary entity of
                     Just _ -> drop 1 cols
                     Nothing -> cols
-
+                                        
 sqlColumn :: Column -> Text
 sqlColumn (Column name isNull typ def _cn _maxLen ref) = T.concat
     [ ","

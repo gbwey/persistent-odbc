@@ -45,7 +45,8 @@ migrate' :: Show a
 migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old, mseq) <- getColumns getter val
-    let new = second (map udToPair) $ mkColumns allDefs val
+    let (newcols, udefs, fdefs) = mkColumns allDefs val
+    let udspair = map udToPair udefs
     let addSequence = AddSequence $ concat
             [ "CREATE SEQUENCE " 
             ,getSeqNameEscaped name
@@ -59,29 +60,31 @@ migrate' allDefs getter val = do
                       Nothing -> concat [escapeDBName $ entityID val, " NUMBER NOT NULL PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
-                [ "CREATE TABLe "
+                [ "CREATe TABLE "
                 , escapeDBName name
                 , "("
                 , idtxt
-                , if null (fst new) then [] else ","
-                , intercalate "," $ map (\x -> showColumn x) $ fst new
+                , if null newcols then [] else ","
+                , intercalate "," $ map showColumn newcols
                 , ")"
                 ]
-        let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
+        let uniques = flip concatMap udspair $ \(uname, ucols) ->
                       [ AlterTable name $
                         AddUniqueConstraint uname $
                         map (findTypeOfColumn allDefs name) ucols ]
         let foreigns = do
-              Column cname _ _ _ _ _ (Just (refTblName, _)) <- fst new
-              return $ AlterColumn name (cname, addReference allDefs refTblName)
-        return $ Right $ map showAlterDb $ addTable : addSequence : uniques ++ foreigns
+              Column cname _ _ _ _ _ (Just (refTblName, _)) <- newcols
+              return $ AlterColumn name (cname, addReference allDefs refTblName cname)
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+                                        in AlterColumn name (foreignRefTableDBName fdef, AddReference childfields parentfields)) fdefs
+
+        return $ Right $ map showAlterDb $ addTable : addSequence : uniques ++ foreigns ++ foreignsAlt
       -- No errors and something found, migrate
       (_, _, ([], old'),mseq) -> do
-        let (acs, ats) = getAlters allDefs name new $ partitionEithers old'
+        let (acs, ats) = getAlters allDefs name (newcols, udspair) $ partitionEithers old'
             acs' = map (AlterColumn name) acs
             ats' = map (AlterTable  name) ats
-        let ret=Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)    
-        trace ("\nmigrate' acs = "++show acs ++"\nmigrate' ats =" ++ show ats ++ " ret="++show ret) $ return ret -- return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)
+        return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)    
       -- Errors
       (_, _, (errs, _), _) -> return $ Left errs
 
@@ -99,8 +102,8 @@ findTypeOfColumn allDefs name col =
 
 
 -- | Helper for 'AddRefence' that finds out the 'entityID'.
-addReference :: Show a => [EntityDef a] -> DBName -> AlterColumn
-addReference allDefs name = AddReference name id_
+addReference :: Show a => [EntityDef a] -> DBName -> DBName -> AlterColumn
+addReference allDefs name cname = AddReference [cname] [id_]
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show name
                          ++ " (allDefs = " ++ show allDefs ++ ")")
@@ -114,8 +117,8 @@ data AlterColumn = Change Column
                  | Default String
                  | NoDefault
                  | Update' String
-                 | AddReference DBName DBName
-                 | DropReference DBName
+                 | AddReference [DBName] [DBName]
+                 | DropReference DBName 
 
 type AlterColumn' = (DBName, AlterColumn)
 
@@ -367,9 +370,9 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- changed in the columns @oldColumns@ for @newColumn@ to be
 -- supported.
 findAlters :: Show a => [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters allDefs col@(Column name isNull type_ def _defConstraintName _maxLen ref) cols =
+findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
     case filter ((name ==) . cName) cols of
-        [] -> ( let cnstr = [addReference allDefs tname | Just (tname, _) <- [ref]]
+        [] -> ( let cnstr = [trace ("\n\nfindalters foreigns col="++showColumn col++" name="++show name++" tname="++show tname) $ addReference allDefs tname name | Just (tname, _) <- [ref]]
                 in map ((,) name) (Add' col : cnstr)
               , cols )
         Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
@@ -378,7 +381,7 @@ findAlters allDefs col@(Column name isNull type_ def _defConstraintName _maxLen 
                             (False, Just (_, cname)) -> [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
+                            (False, Just (tname, cname)) -> [(name, trace ("\n\nfindalters 2 foreigns cname="++show cname++" name="++show name++" tname="++show tname) $ addReference allDefs tname name)]
                             _ -> []
                 -- Type and nullability
                 modType | tpcheck type_ type_' && isNull == isNull' = []
@@ -411,7 +414,7 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def _ maxLen ref) = concat
+showColumn (Column n nu t def defConstraintName maxLen ref) = concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -536,13 +539,13 @@ showAlter table (n, AddReference t2 id2) = concat
     [ "ALTER TABLE "
     , escapeDBName table
     , " ADD CONSTRAINT "
-    , escapeDBName $ refName table n
+    , escapeDBName $ refNames table t2
     , " FOREIGN KEY("
-    , escapeDBName n
+    , intercalate "," $ map escapeDBName t2
     , ") REFERENCES "
-    , escapeDBName t2
+    , escapeDBName n
     , "("
-    , escapeDBName id2
+    , intercalate "," $ map escapeDBName id2
     , ")"
     ]
 showAlter table (_, DropReference cname) = concat
@@ -553,9 +556,14 @@ showAlter table (_, DropReference cname) = concat
     ]
 
 -- ORA-00972: identifier is too long
-refName :: DBName -> DBName -> DBName
+refName :: DBName -> DBName -> DBName 
 refName (DBName table) (DBName column) =
     DBName $ T.take 30 $ T.concat [table, "_", column, "_fkey"]
+
+refNames :: DBName -> [DBName] -> DBName
+refNames (DBName table) dbnames =
+    let columns = T.intercalate "_" $ map unDBName dbnames
+    in DBName $ T.take 30 $ T.concat [table, "_", columns, "_fkey"]
 
 pkeyName :: DBName -> DBName
 pkeyName (DBName table) =
@@ -587,7 +595,7 @@ insertSql' ent vals =
                 , ")"
                 ]
     Nothing -> ISRInsertGet doInsert $ T.pack ("select cast(" ++ getSeqNameEscaped (entityDB ent) ++ ".currval as number) from dual")
-    where
+     where
       doInsert = pack $ concat
         [ "INSERT INTO "
         , escapeDBName $ entityDB ent

@@ -55,7 +55,8 @@ migrate' :: Show a
 migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
-    let new = second (map udToPair) $ mkColumns allDefs val
+    let (newcols, udefs, fdefs) = mkColumns allDefs val
+    let udspair = map udToPair udefs
     case (idClmn, old, partitionEithers old) of
       -- Nothing found, create everything
       ([], [], _) -> do
@@ -64,25 +65,28 @@ migrate' allDefs getter val = do
                       Nothing  -> concat [escapeDBName $ entityID val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
-                [ "CREATE TABLe "
+                [ "CREATe TABLe "
                 , escapeDBName name
                 , "("
                 , idtxt
-                , if null (fst new) then [] else ","
-                , intercalate "," $ map (\x -> showColumn x) $ fst new
+                , if null newcols then [] else ","
+                , intercalate "," $ map (\x -> showColumn x) newcols
                 , ")"
                 ]
-        let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
+        let uniques = flip concatMap udspair $ \(uname, ucols) ->
                       [ AlterTable name $
                         AddUniqueConstraint uname $
                         map (findTypeOfColumn allDefs name) ucols ]
         let foreigns = do
-              Column cname _ _ _ _ _ (Just (refTblName, _)) <- fst new
-              return $ AlterColumn name (cname, addReference allDefs refTblName)
-        return $ Right $ map showAlterDb $ addTable : uniques ++ foreigns
+              Column cname _ _ _ _ _ (Just (refTblName, _)) <- newcols
+              return $ AlterColumn name (refTblName, addReference allDefs refTblName cname)
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+                                        in AlterColumn name (foreignRefTableDBName fdef, AddReference childfields parentfields)) fdefs
+        
+        return $ Right $ map showAlterDb $ addTable : uniques ++ foreigns ++ foreignsAlt
       -- No errors and something found, migrate
       (_, _, ([], old')) -> do
-        let (acs, ats) = getAlters allDefs name new $ partitionEithers old'
+        let (acs, ats) = getAlters allDefs name (newcols, udspair) $ partitionEithers old'
             acs' = map (AlterColumn name) acs
             ats' = map (AlterTable  name) ats
         return $ Right $ map showAlterDb $ acs' ++ ats'
@@ -103,8 +107,8 @@ findTypeOfColumn allDefs name col =
 
 
 -- | Helper for 'AddRefence' that finds out the 'entityID'.
-addReference :: Show a => [EntityDef a] -> DBName -> AlterColumn
-addReference allDefs name = AddReference name id_
+addReference :: Show a => [EntityDef a] -> DBName -> DBName -> AlterColumn
+addReference allDefs name cname = AddReference [cname] [id_]
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show name
                          ++ " (allDefs = " ++ show allDefs ++ ")")
@@ -118,7 +122,7 @@ data AlterColumn = Change Column
                  | Default String
                  | NoDefault DBName
                  | Update' String
-                 | AddReference DBName DBName
+                 | AddReference [DBName] [DBName]
                  | DropReference DBName
 
 type AlterColumn' = (DBName, AlterColumn)
@@ -376,7 +380,7 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 findAlters :: Show a => [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
     case filter ((name ==) . cName) cols of
-        [] -> ( let cnstr = [addReference allDefs tname | Just (tname, _) <- [ref]]
+        [] -> ( let cnstr = [addReference allDefs tname name | Just (tname, _) <- [ref]]
                 in map ((,) name) (Add' col : cnstr)
               , cols )
         Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
@@ -385,7 +389,7 @@ findAlters allDefs col@(Column name isNull type_ def defConstraintName _maxLen r
                             (False, Just (_, cname)) -> [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, _)) -> [(name, addReference allDefs tname)]
+                            (False, Just (tname, _)) -> [(name, addReference allDefs tname name)]
                             _ -> []
                 -- Type and nullability
                 modType | tpcheck type_ type_' && isNull == isNull' = []
@@ -536,13 +540,13 @@ showAlter table (n, AddReference t2 id2) = concat
     [ "ALTER TABLE "
     , escapeDBName table
     , " ADD CONSTRAINT "
-    , escapeDBName $ refName table n
+    , escapeDBName $ refNames table t2
     , " FOREIGN KEY("
-    , escapeDBName n
+    , intercalate "," $ map escapeDBName t2
     , ") REFERENCES "
-    , escapeDBName t2
+    , escapeDBName n
     , "("
-    , escapeDBName id2
+    , intercalate "," $ map escapeDBName id2
     , ")"
     ]
 showAlter table (_, DropReference cname) = concat
@@ -556,6 +560,10 @@ refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
     DBName $ T.concat [table, "_", column, "_fkey"]
 
+refNames :: DBName -> [DBName] -> DBName
+refNames (DBName table) dbnames =
+    let columns = T.intercalate "_" $ map unDBName dbnames
+    in DBName $ T.concat [table, "_", columns, "_fkey"]
 
 ----------------------------------------------------------------------
 
@@ -584,25 +592,25 @@ insertSql' ent vals =
                 ]
     Nothing -> 
 -- should use scope_identity() but doesnt work :gives null
-    ISRInsertGet doInsert "SELECT @@identity"
-    where
-      doInsert = pack $ concat
-        [ "INSERT INTO "
+      ISRInsertGet doInsert "SELECT @@identity"
+      where
+        doInsert = pack $ concat
+          [ "INSERT INTO "
           , escapeDBName $ entityDB ent
-        , "("
+          , "("
           , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
-        , ") VALUES("
+          , ") VALUES("
           , intercalate "," $ zipWith doValue (entityFields ent) vals
-        , ")"
-        ]
-      --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
-      --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
-      doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-      doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "convert(varbinary(max),?)" -- trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
---      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
---      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
---      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
-      doValue _ _ = "?"
+          , ")"
+          ]
+        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
+        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
+        doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+        doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "convert(varbinary(max),?)" -- trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
+        doValue _ _ = "?"
 
         
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 

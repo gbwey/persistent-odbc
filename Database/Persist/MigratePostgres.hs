@@ -16,16 +16,15 @@ import Data.Text (pack,Text)
 
 import Data.Either (partitionEithers)
 import Control.Arrow
-import Data.List (intercalate, sort, groupBy)
+import Data.List (find, intercalate, sort, groupBy)
 import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust)
 
-import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding as T
 
 import Database.Persist.ODBCTypes
-import Data.Maybe (isJust)
 import Debug.Trace
 
 tracex::String -> a -> a
@@ -44,7 +43,7 @@ getMigrationStrategy dbtype = error $ "Postgres: calling with invalid dbtype " +
                      
 migrate' :: [EntityDef a]
          -> (Text -> IO Statement)
-         => EntityDef SqlType
+         -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
     let name = entityDB val
@@ -52,9 +51,9 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
     case partitionEithers old of
         ([], old'') -> do
             let old' = partitionEithers old''
-            let new = first (filter $ not . safeToRemove val . cName)
-                    $ second (map udToPair)
-                    $ mkColumns allDefs val
+            let (newcols', udefs, fdefs) = mkColumns allDefs val
+            let newcols = filter (not . safeToRemove val . cName) newcols'
+            let udspair = map udToPair udefs
             let composite = isJust $ entityPrimary val
             if null old
                 then do
@@ -64,20 +63,22 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
-                            [ "CREATE TABLe "
+                            [ "CREATe TABLE "
                             , T.unpack $ escape name
                             , "("
                             , idtxt
-                            , if null (fst new) then [] else ","
-                            , intercalate "," $ map showColumn $ fst new
+                            , if null newcols then [] else ","
+                            , intercalate "," $ map showColumn newcols
                             , ")"
                             ]
-                    let uniques = flip concatMap (snd new) $ \(uname, ucols) ->
+                    let uniques = flip concatMap udspair $ \(uname, ucols) ->
                             [AlterTable name $ AddUniqueConstraint uname ucols]
-                        references = mapMaybe (getAddReference name) $ fst new
-                    return $ Right $ addTable : uniques ++ references
+                        references = mapMaybe (\c@Column { cName=cname, cReference=Just (refTblName, _) } -> getAddReference allDefs name refTblName cname (cReference c)) $ filter (\c -> cReference c /= Nothing) newcols
+                        foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+                                                    in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
+                    return $ Right $ addTable : uniques ++ references ++ foreignsAlt
                 else do
-                    let (acs, ats) = getAlters val new old'
+                    let (acs, ats) = getAlters allDefs val (newcols, udspair) old'
                     let acs' = map (AlterColumn name) acs
                     let ats' = map (AlterTable name) ats
                     return $ Right $ acs' ++ ats'
@@ -87,7 +88,7 @@ type SafeToRemove = Bool
 
 data AlterColumn = Type SqlType | IsNull | NotNull | Add' Column | Drop SafeToRemove
                  | Default String | NoDefault | Update' String
-                 | AddReference DBName | DropReference DBName
+                 | AddReference DBName [DBName] [DBName] | DropReference DBName
 type AlterColumn' = (DBName, AlterColumn)
 
 data AlterTable = AddUniqueConstraint DBName [DBName]
@@ -122,14 +123,21 @@ getColumns getter def = do
             ]
     cs <- runResourceT $ stmtQuery stmt vals $$ helper
     let sqlc=concat ["SELECT "
-                          ,"constraint_name "
-                          ,",column_name "
-                          ,"FROM information_schema.constraint_column_usage "
-                          ,"WHERE table_catalog=current_database() "
-                          ,"AND table_schema=current_schema() "
-                          ,"AND table_name=? "
-                          ,"AND column_name <> ? "
-                          ,"ORDER BY constraint_name, column_name"]
+                          ,"c.constraint_name, "
+                          ,"c.column_name "
+                          ,"FROM information_schema.key_column_usage c, "
+                          ,"information_schema.table_constraints k "
+                          ,"WHERE c.table_catalog=current_database() "
+                          ,"AND c.table_catalog=k.table_catalog "
+                          ,"AND c.table_schema=current_schema() "
+                          ,"AND c.table_schema=k.table_schema "
+                          ,"AND c.table_name=? "
+                          ,"AND c.table_name=k.table_name "
+                          ,"AND c.column_name <> ? "
+                          ,"AND c.ordinal_position=1 "
+                          ,"AND c.constraint_name=k.constraint_name "
+                          ,"AND k.constraint_type <> 'PRIMARY KEY' "
+                          ,"ORDER BY c.constraint_name, c.column_name"]
 
     stmt' <- getter $ pack sqlc
         
@@ -140,11 +148,9 @@ getColumns getter def = do
         x <- CL.head
         case x of
             Nothing -> return $ front []
-            Just [PersistText con, PersistText col] ->
-                getAll (front . (:) (con, col))
-            Just [PersistByteString con, PersistByteString col] -> do
-                getAll (front . (:) (TE.decodeUtf8 con, TE.decodeUtf8 col)) 
-            Just xx -> error ("oops: unexpected datatype returned odbc postgres  xx="++show xx) -- $ getAll front -- FIXME error message?
+            Just [PersistText con, PersistText col] -> getAll (front . (:) (con, col))
+            Just [PersistByteString con, PersistByteString col] -> getAll (front . (:) (T.decodeUtf8 con, T.decodeUtf8 col)) 
+            Just xx -> error $ "oops: unexpected datatype returned odbc postgres  xx="++show xx
     helperU = do
         rows <- getAll id
         return $ map (Right . Right . (DBName . fst . head &&& map (DBName . snd)))
@@ -169,16 +175,17 @@ safeToRemove def (DBName colName)
     $ filter ((== (DBName colName)) . fieldDB)
     $ entityFields def
 
-getAlters :: EntityDef a
+getAlters :: [EntityDef a]
+          -> EntityDef SqlType
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
           -> ([AlterColumn'], [AlterTable])
-getAlters def (c1, u1) (c2, u2) =
+getAlters defs def (c1, u1) (c2, u2) =
     (getAltersC c1 c2, getAltersU u1 u2)
   where
     getAltersC [] old = map (\x -> (cName x, Drop $ safeToRemove def $ cName x)) old
     getAltersC (new:news) old =
-        let (alters, old') = findAlters new old
+        let (alters, old') = findAlters defs (entityDB def) new old
          in alters ++ getAltersC news old'
 
     getAltersU :: [(DBName, [DBName])]
@@ -206,10 +213,10 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     case d' of
         Left s -> return $ Left s
         Right d'' ->
-            case getType (TE.decodeUtf8 z) of
+            case getType (T.decodeUtf8 z) of
                 Left s -> return $ Left s
                 Right t -> do
-                    let cname = DBName $ TE.decodeUtf8 x
+                    let cname = DBName $ T.decodeUtf8 x
                     ref <- getRef cname
                     return $ Right Column
                         { cName = cname
@@ -222,7 +229,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                         }
   where
     getRef cname = do
-        let sql = concat
+        let sql = pack $ concat
                 [ "SELECT COUNT(*) FROM "
                 , "information_schema.table_constraints "
                 , "WHERE table_catalog=current_database() "
@@ -232,7 +239,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
                 , "AND constraint_name=?"
                 ]
         let ref = refName tname cname
-        stmt <- getter $ pack sql
+        stmt <- getter sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
                      , PersistText $ unDBName ref
@@ -242,7 +249,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
-            PersistByteString bs -> Right $ Just $ TE.decodeUtf8 bs
+            PersistByteString bs -> Right $ Just $ T.decodeUtf8 bs
             _ -> Left $ pack $ "Invalid default column: " ++ show d
     getType "int4"        = Right $ SqlInt32
     getType "int8"        = Right $ SqlInt64
@@ -263,15 +270,18 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
 getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
-findAlters :: Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
+findAlters :: [EntityDef a] -> DBName -> Column -> [Column] -> ([AlterColumn'], [Column])
+findAlters defs tablename col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
     case filter (\c -> cName c == name) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
             let refDrop Nothing = []
                 refDrop (Just (_, cname)) = [(name, DropReference cname)]
                 refAdd Nothing = []
-                refAdd (Just (tname, _)) = [(name, AddReference tname)]
+                refAdd (Just (tname, a)) = trace ("\n\n\nO CRAP defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
+                                           case find ((==tname) . entityDB) defs of
+                                                Just refdef -> [(tname, AddReference a [name] [entityID refdef])]
+                                                Nothing -> error $ "could not find the entityDef for reftable[" ++ show tname ++ "]"
                 modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
                         then []
@@ -307,11 +317,18 @@ cmpdef (Just def) (Just def') | def==def' = True
 cmpdef _ _ = False
 
 -- | Get the references to be added to a table for the given column.
-getAddReference :: DBName -> Column -> Maybe AlterDB
-getAddReference table (Column n _nu _ _def _defConstraintName _maxLen ref) =
+getAddReference :: [EntityDef a] -> DBName -> DBName -> DBName -> Maybe (DBName, DBName) -> Maybe AlterDB
+getAddReference allDefs table reftable cname ref =
     case ref of
         Nothing -> Nothing
-        Just (s, _) -> Just $ AlterColumn table (n, AddReference s)
+        Just (s, z) -> trace ("\n\ngetaddreference table="++ show table++" reftable="++show reftable++" s="++show s++" z=" ++ show z++"\n\n") $ 
+                       Just $ AlterColumn table (s, AddReference (refName table cname) [cname] [id_])
+                          where
+                            id_ = maybe (error $ "Could not find ID of entity " ++ show reftable)
+                                        id $ do
+                                          entDef <- find ((== reftable) . entityDB) allDefs
+                                          return (entityID entDef)
+                          
 
 showColumn :: Column -> String
 showColumn c@(Column n nu sqlType def defConstraintName _maxLen _ref) = concat
@@ -433,15 +450,18 @@ showAlter table (n, Update' s) = concat
     , T.unpack $ escape n
     , " IS NULL"
     ]
-showAlter table (n, AddReference t2) = concat
+showAlter table (reftable, AddReference fkeyname t2 id2) = concat
     [ "ALTER TABLE "
     , T.unpack $ escape table
     , " ADD CONSTRAINT "
-    , T.unpack $ escape $ refName table n
+    , T.unpack $ escape fkeyname
     , " FOREIGN KEY("
-    , T.unpack $ escape n
+    , T.unpack $ T.intercalate "," $ map escape t2
     , ") REFERENCES "
-    , T.unpack $ escape t2
+    , T.unpack $ escape reftable
+    , "("
+    , T.unpack $ T.intercalate "," $ map escape id2
+    , ")"
     ]
 showAlter table (_, DropReference cname) = concat
     [ "ALTER TABLE "
@@ -467,7 +487,7 @@ udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
-insertSql' ent vals =
+insertSql' ent vals = trace ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\n\n") $
   case entityPrimary ent of
     Just pdef -> 
       ISRManyKeys sql vals
@@ -481,13 +501,13 @@ insertSql' ent vals =
                 , ")"
                 ]
     Nothing -> 
-  ISRSingle $ pack $ concat
-    [ "INSERT INTO "
+      ISRSingle $ pack $ concat
+        [ "INSERT INTO "
         , T.unpack $ escape $ entityDB ent
-    , "("
+        , "("
         , intercalate "," $ map (T.unpack . escape . fieldDB) $ entityFields ent
-    , ") VALUES("
+        , ") VALUES("
         , intercalate "," (map (const "?") $ entityFields ent)
-    , ") RETURNING "
+        , ") RETURNING "
         , T.unpack $ escape $ entityID ent
-    ]
+        ]
