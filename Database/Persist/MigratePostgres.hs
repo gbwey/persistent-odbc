@@ -121,7 +121,7 @@ getColumns getter def = do
             [ PersistText $ unDBName $ entityDB def
             , PersistText $ unDBName $ entityID def
             ]
-    cs <- runResourceT $ stmtQuery stmt vals $$ helper
+    cs <- runResourceT $ stmtQuery stmt vals $$ helperClmns
     let sqlc=concat ["SELECT "
                           ,"c.constraint_name, "
                           ,"c.column_name "
@@ -136,12 +136,13 @@ getColumns getter def = do
                           ,"AND c.column_name <> ? "
                           ,"AND c.ordinal_position=1 "
                           ,"AND c.constraint_name=k.constraint_name "
-                          ,"AND k.constraint_type <> 'PRIMARY KEY' "
+                          ,"AND k.constraint_type not in ('PRIMARY KEY','FOREIGN KEY') "
                           ,"ORDER BY c.constraint_name, c.column_name"]
 
     stmt' <- getter $ pack sqlc
         
     us <- runResourceT $ stmtQuery stmt' vals $$ helperU
+    liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     return $ cs ++ us
   where
     getAll front = do
@@ -155,6 +156,13 @@ getColumns getter def = do
         rows <- getAll id
         return $ map (Right . Right . (DBName . fst . head &&& map (DBName . snd)))
                $ groupBy ((==) `on` fst) rows
+
+    helperClmns = CL.mapM getIt =$ CL.consume
+        where
+          getIt = fmap (either Left (Right . Left)) .
+                  liftIO .
+                  getColumn getter (entityDB def)
+{-
     helper = do
         x <- CL.head
         case x of
@@ -166,7 +174,7 @@ getColumns getter def = do
                             Right c -> Right $ Left c
                 cols <- helper
                 return $ col' : cols
-
+-}
 -- | Check if a column name is listed as the "safe to remove" in the entity
 -- list.
 safeToRemove :: EntityDef a -> DBName -> Bool
@@ -180,12 +188,12 @@ getAlters :: [EntityDef a]
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
           -> ([AlterColumn'], [AlterTable])
-getAlters defs def (c1, u1) (c2, u2) =
+getAlters allDefs def (c1, u1) (c2, u2) =
     (getAltersC c1 c2, getAltersU u1 u2)
   where
     getAltersC [] old = map (\x -> (cName x, Drop $ safeToRemove def $ cName x)) old
     getAltersC (new:news) old =
-        let (alters, old') = findAlters defs (entityDB def) new old
+        let (alters, old') = findAlters allDefs (entityDB def) new old
          in alters ++ getAltersC news old'
 
     getAltersU :: [(DBName, [DBName])]
@@ -230,22 +238,42 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
   where
     getRef cname = do
         let sql = pack $ concat
-                [ "SELECT COUNT(*) FROM "
-                , "information_schema.table_constraints "
-                , "WHERE table_catalog=current_database() "
-                , "AND table_schema=current_schema() "
-                , "AND table_name=? "
-                , "AND constraint_type='FOREIGN KEY' "
-                , "AND constraint_name=?"
-                ]
+                [ "SELECT "
+                  ,"tc.table_name, "
+                  ,"kcu.column_name, "
+                  ,"ccu.table_name AS foreign_table_name, "
+                  ,"ccu.column_name AS foreign_column_name, "
+                  ,"kcu.ordinal_position "
+                  ,"FROM "
+                  ,"information_schema.table_constraints AS tc "
+                  ,"JOIN information_schema.key_column_usage "
+                  ,"AS kcu ON tc.constraint_name = kcu.constraint_name "
+                  ,"JOIN information_schema.constraint_column_usage "
+                  ,"AS ccu ON ccu.constraint_name = tc.constraint_name "
+                  ,"WHERE constraint_type = 'FOREIGN KEY' "
+                  ,"and tc.table_name=? "
+                  ,"and tc.constraint_name=? "
+                  ,"and tc.table_catalog=current_database() "
+                  ,"AND tc.table_catalog=kcu.table_catalog "
+                  ,"AND tc.table_catalog=ccu.table_catalog "
+                  ,"AND tc.table_schema=current_schema() "
+                  ,"AND tc.table_schema=kcu.table_schema "
+                  ,"AND tc.table_schema=ccu.table_schema "
+                  ,"order by tc.table_name,tc.constraint_name, kcu.ordinal_position " 
+                  ]
+
         let ref = refName tname cname
         stmt <- getter sql
         runResourceT $ stmtQuery stmt
                      [ PersistText $ unDBName tname
                      , PersistText $ unDBName ref
                      ] $$ do
-            Just [PersistInt64 i] <- CL.head
-            return $ if i == 0 then Nothing else Just (DBName "", ref)
+            m <- CL.head
+
+            return $ case m of
+              Just [PersistText table, PersistText col, PersistText reftable, PersistText refcol, PersistInt64 pos] -> Just (DBName reftable, ref)
+              Just [PersistByteString table, PersistByteString col, PersistByteString reftable, PersistByteString refcol, PersistInt64 pos] -> Just (DBName (T.decodeUtf8 reftable), ref)
+              Nothing -> Nothing
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -272,20 +300,22 @@ getColumn _ a2 x =
 
 findAlters :: [EntityDef a] -> DBName -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters defs tablename col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
-    case filter (\c -> cName c == name) cols of
+    trace ("\n\n\nfindAlters tablename="++show tablename++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $ case filter ((name ==) . cName) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
             let refDrop Nothing = []
-                refDrop (Just (_, cname)) = [(name, DropReference cname)]
+                refDrop (Just (_, cname)) = trace ("\n\n\n44444 findAlters dropping fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" cname="++show cname++" tablename="++show tablename++"\n\n\n") $ 
+                                             [(name, DropReference cname)]
                 refAdd Nothing = []
-                refAdd (Just (tname, a)) = trace ("\n\n\nO CRAP defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
+                refAdd (Just (tname, a)) = trace ("\n\n\n33333 findAlters adding fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
                                            case find ((==tname) . entityDB) defs of
                                                 Just refdef -> [(tname, AddReference a [name] [entityID refdef])]
                                                 Nothing -> error $ "could not find the entityDef for reftable[" ++ show tname ++ "]"
                 modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
                         then []
-                        else refDrop ref' ++ refAdd ref
+                        else trace ("\n\n\nmodRef findAlters drop/add cos ref doesnt match ref[" ++ show ref ++ "] ref'[" ++ show ref' ++ "] tablename="++show tablename++"\n\n\n") $ 
+                              refDrop ref' ++ refAdd ref
                 modNull = case (isNull, isNull') of
                             (True, False) -> [(name, IsNull)]
                             (False, True) ->
