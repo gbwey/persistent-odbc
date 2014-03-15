@@ -1,7 +1,6 @@
 name:               persistent-odbc
 version:            0.1.2.0
 synopsis:           Backend for the persistent library using ODBC
-description:        Based on HDBC-ODBC.
 license:            MIT
 license-file:       LICENSE
 author:             Grant Weyburne
@@ -10,6 +9,12 @@ category:           Database, Yesod
 cabal-version:      >= 1.8
 build-type:         Simple
 stability:          Experimental
+homepage:           https://github.com/gbwey/persistent-odbc
+bug-reports:        https://github.com/gbwey/persistent-odbc/issues
+description:        
+    This package contains backends for persistent using ODBC.
+    It currently supports the following databases: MSSQL, MySql, Oracle, Sqlite, DB2, Postgres. 
+    Uses HDBC-ODBC for accessing ODBC. 
 
 Flag debug
   Default: False
