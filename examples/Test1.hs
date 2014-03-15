@@ -12,7 +12,7 @@ import Control.Monad.Logger
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist.ODBC
-import Data.Conduit
+--import Data.Conduit
 import Data.Aeson
 import System.Environment (getArgs)
 

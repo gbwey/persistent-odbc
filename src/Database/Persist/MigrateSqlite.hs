@@ -2,21 +2,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 -- | A Sqlite backend for @persistent@.
 module Database.Persist.MigrateSqlite
     ( getMigrationStrategy 
     ) where
 
-import Control.Arrow
-import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Error (ErrorT(..))
-import Data.ByteString (ByteString)
-import Data.Either (partitionEithers)
-import Data.Function (on)
-import Data.List (find, intercalate, sort, groupBy)
+import Data.List (intercalate)
 import Data.Text (Text, pack)
-import Data.Monoid ((<>))
 
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -25,10 +18,9 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Debug.Trace
 
 getMigrationStrategy :: DBType -> MigrationStrategy
-getMigrationStrategy dbtype@Sqlite { sqlite3619 = fksupport } = 
+getMigrationStrategy dbtype@Sqlite { sqlite3619 = _fksupport } = 
      MigrationStrategy
                           { dbmsLimitOffset=decorateSQLWithLimitOffset "LIMIT -1" 
                            ,dbmsMigrate=migrate'
@@ -41,7 +33,7 @@ getMigrationStrategy dbtype = error $ "Sqlite: calling with invalid dbtype " ++ 
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
-    Just pdef -> 
+    Just _ -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -84,7 +76,7 @@ migrate' :: [EntityDef a]
          -> EntityDef SqlType
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
-    let (cols, uniqs, fdefs) = mkColumns allDefs val
+    let (cols, uniqs, _fdefs) = mkColumns allDefs val
     let newSql = mkCreateTable False def (filter (not . safeToRemove val . cName) cols, uniqs)
     stmt <- getter "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
     oldSql' <- runResourceT
@@ -142,7 +134,7 @@ getCopyTable allDefs getter val = do
            , (False, copyToFinal $ id_ : newCols)
            , (False, pack dropTmp)
            ]
-    trace ("\n\ngetCopyTable ret="++show ret++ "\n\n") $ return ret  
+    return ret  
   where
 
     def = val
@@ -155,11 +147,11 @@ getCopyTable allDefs getter val = do
                 return $ name : names
             Just (_:PersistByteString name:_) -> do
                 names <- getCols
-                trace ("getcols persistbytestring name=" ++ show name) $ return $ T.decodeUtf8 name : names
+                return $ T.decodeUtf8 name : names
             Just y -> error $ "Invalid result from PRAGMA table_info: " ++ show y
     table = entityDB def
     tableTmp = DBName $ unDBName table `T.append` "_backup"
-    (cols, uniqs, fdefs) = mkColumns allDefs val
+    (cols, uniqs, _fdefs) = mkColumns allDefs val
     cols' = filter (not . safeToRemove def . cName) cols
     newSql = mkCreateTable False def (cols', uniqs)
     tmpSql = mkCreateTable True def { entityDB = tableTmp } (cols', uniqs)
@@ -205,9 +197,9 @@ mkCreateTable isTemp entity (cols, uniqs) = T.concat
                   Just pdef -> T.pack $ concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
                   Nothing   -> T.pack $ concat [T.unpack $ escape $ entityID entity
                                         ," INTEGER PRIMARY KEY "]
-          cols' = case entityPrimary entity of
-                    Just _ -> drop 1 cols
-                    Nothing -> cols
+          --cols' = case entityPrimary entity of
+          --          Just _ -> drop 1 cols
+          --          Nothing -> cols
                                         
 sqlColumn :: Column -> Text
 sqlColumn (Column name isNull typ def _cn _maxLen ref) = T.concat

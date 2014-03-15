@@ -1,5 +1,10 @@
-dist
-cabal-dev
+dist/
+cabal-dev/
+.cabal-sandbox/
+packages/
+i386-windows-ghc-7.6.3-packages.conf.d/
+add-source-timestamps
+cabal-sandbox-config
 *.o
 *.hi
 *.chi

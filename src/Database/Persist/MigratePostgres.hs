@@ -20,15 +20,20 @@ import Data.List (find, intercalate, sort, groupBy)
 import Data.Function (on)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
-import Data.Maybe (mapMaybe, isJust)
+import Data.Maybe (mapMaybe)
 
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.ODBCTypes
-import Debug.Trace
 
+#if DEBUG
+import Debug.Trace
 tracex::String -> a -> a
-tracex a b = b  -- trace a b
+tracex = trace
+#else
+tracex::String -> a -> a
+tracex _ b = b
+#endif
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Postgres {} = 
@@ -54,7 +59,7 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             let (newcols', udefs, fdefs) = mkColumns allDefs val
             let newcols = filter (not . safeToRemove val . cName) newcols'
             let udspair = map udToPair udefs
-            let composite = isJust $ entityPrimary val
+            --let composite = isJust $ entityPrimary val
             if null old
                 then do
                     let idtxt = case entityPrimary val of
@@ -271,9 +276,10 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
             m <- CL.head
 
             return $ case m of
-              Just [PersistText table, PersistText col, PersistText reftable, PersistText refcol, PersistInt64 pos] -> Just (DBName reftable, ref)
-              Just [PersistByteString table, PersistByteString col, PersistByteString reftable, PersistByteString refcol, PersistInt64 pos] -> Just (DBName (T.decodeUtf8 reftable), ref)
+              Just [PersistText _table, PersistText _col, PersistText reftable, PersistText _refcol, PersistInt64 _pos] -> Just (DBName reftable, ref)
+              Just [PersistByteString _table, PersistByteString _col, PersistByteString reftable, PersistByteString _refcol, PersistInt64 _pos] -> Just (DBName (T.decodeUtf8 reftable), ref)
               Nothing -> Nothing
+              _ -> error $ "unexpected result found ["++ show m ++ "]" 
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -299,22 +305,22 @@ getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
 findAlters :: [EntityDef a] -> DBName -> Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters defs tablename col@(Column name isNull sqltype def defConstraintName _maxLen ref) cols =
-    trace ("\n\n\nfindAlters tablename="++show tablename++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $ case filter ((name ==) . cName) cols of
+findAlters defs tablename col@(Column name isNull sqltype def _defConstraintName _maxLen ref) cols =
+    tracex ("\n\n\nfindAlters tablename="++show tablename++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $ case filter ((name ==) . cName) cols of
         [] -> ([(name, Add' col)], cols)
         Column _ isNull' sqltype' def' defConstraintName' _maxLen' ref':_ ->
             let refDrop Nothing = []
-                refDrop (Just (_, cname)) = trace ("\n\n\n44444 findAlters dropping fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" cname="++show cname++" tablename="++show tablename++"\n\n\n") $ 
+                refDrop (Just (_, cname)) = tracex ("\n\n\n44444 findAlters dropping fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" cname="++show cname++" tablename="++show tablename++"\n\n\n") $ 
                                              [(name, DropReference cname)]
                 refAdd Nothing = []
-                refAdd (Just (tname, a)) = trace ("\n\n\n33333 findAlters adding fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
+                refAdd (Just (tname, a)) = tracex ("\n\n\n33333 findAlters adding fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
                                            case find ((==tname) . entityDB) defs of
                                                 Just refdef -> [(tname, AddReference a [name] [entityID refdef])]
                                                 Nothing -> error $ "could not find the entityDef for reftable[" ++ show tname ++ "]"
                 modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
                         then []
-                        else trace ("\n\n\nmodRef findAlters drop/add cos ref doesnt match ref[" ++ show ref ++ "] ref'[" ++ show ref' ++ "] tablename="++show tablename++"\n\n\n") $ 
+                        else tracex ("\n\n\nmodRef findAlters drop/add cos ref doesnt match ref[" ++ show ref ++ "] ref'[" ++ show ref' ++ "] tablename="++show tablename++"\n\n\n") $ 
                               refDrop ref' ++ refAdd ref
                 modNull = case (isNull, isNull') of
                             (True, False) -> [(name, IsNull)]
@@ -351,7 +357,7 @@ getAddReference :: [EntityDef a] -> DBName -> DBName -> DBName -> Maybe (DBName,
 getAddReference allDefs table reftable cname ref =
     case ref of
         Nothing -> Nothing
-        Just (s, z) -> trace ("\n\ngetaddreference table="++ show table++" reftable="++show reftable++" s="++show s++" z=" ++ show z++"\n\n") $ 
+        Just (s, z) -> tracex ("\n\ngetaddreference table="++ show table++" reftable="++show reftable++" s="++show s++" z=" ++ show z++"\n\n") $ 
                        Just $ AlterColumn table (s, AddReference (refName table cname) [cname] [id_])
                           where
                             id_ = maybe (error $ "Could not find ID of entity " ++ show reftable)
@@ -361,10 +367,10 @@ getAddReference allDefs table reftable cname ref =
                           
 
 showColumn :: Column -> String
-showColumn c@(Column n nu sqlType def defConstraintName _maxLen _ref) = concat
+showColumn (Column n nu sqlType' def _defConstraintName _maxLen _ref) = concat
     [ T.unpack $ escape n
     , " "
-    , showSqlType sqlType _maxLen
+    , showSqlType sqlType' _maxLen
     , " "
     , if nu then "NULL" else "NOT NULL"
     , case def of
@@ -517,9 +523,9 @@ udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
-insertSql' ent vals = trace ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\n\n") $
+insertSql' ent vals = tracex ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\n\n") $
   case entityPrimary ent of
-    Just pdef -> 
+    Just _pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "

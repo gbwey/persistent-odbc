@@ -1,7 +1,7 @@
 name:               persistent-odbc
 version:            0.1.2.0
 synopsis:           Backend for the persistent library using ODBC
-description:        Based on HDBC-ODBC. Functionality for modifying db-schema is not supported. Such functionality should be supported in additional packages specified for database like persistent-odbc-oracle, persistent-odbc-msql and so on.
+description:        Based on HDBC-ODBC.
 license:            MIT
 license-file:       LICENSE
 author:             Grant Weyburne
@@ -17,13 +17,9 @@ Flag debug
 Flag tester
   Default: False
   
-Flag ubuntu
-  Default: False
-  
 library
   if flag(debug)
     cpp-options: -DDEBUG
-
 
   exposed-modules:    Database.Persist.ODBC
                     , Database.Persist.ODBCTypes
@@ -33,15 +29,14 @@ library
                     , Database.Persist.MigrateMSSQL
                     , Database.Persist.MigrateMySQL
                     , Database.Persist.MigrateDB2
-                    , Test1
                     
-
-  ghc-options:   -Wall -O2
+  ghc-options:   -Wall
+  hs-source-dirs: src
 
   build-depends:      base         >= 4        && < 5
-                    , text          >= 0.11
+                    , text          >= 0.7
                     , aeson         >= 0.6
-                    , time          >= 1.4
+                    , time          >= 1.1
                     , conduit       >= 1.0
                     , containers    >= 0.4
                     , transformers  >= 0.3
@@ -50,18 +45,17 @@ library
                     , HDBC-odbc     >= 2.2 
                     , monad-logger
                     , resourcet
-                    , persistent-template
-                    , persistent
-                    , bytestring
+                    , persistent-template >= 1.2    && < 1.4
+                    , persistent    >= 1.2    && < 1.4
+                    , bytestring    >= 0.9
 
   if flag(tester) 
+                    hs-source-dirs: examples
                     exposed-modules: TestODBC
                                    , FtypeEnum
                     build-depends: blaze-html
                                  , esqueleto
 
-  if flag(ubuntu) 
-                    exposed-modules: Test2
-                    build-depends: persistent-sqlite
-                                 , persistent-mysql
-                                 , persistent-postgresql
+source-repository head
+  type:     git
+  location: git://github.com/gbwey/persistent-odbc.git

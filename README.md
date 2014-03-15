@@ -12,13 +12,9 @@ see TestODBC.hs for usage and tests.
 
 ##How to get started using cabal >= 1.18
     git clone https://github.com/gbwey/persistent-odbc
-    git clone https://github.com/gbwey/persistent
-    git clone https://github.com/gbwey/esqueleto -b test8
     cd persistent-odbc
     cabal sandbox delete
     cabal sandbox init
-    cabal sandbox add-source ../persistent/persistent
-    cabal sandbox add-source ../esqueleto
     cabal install --only-dependencies --flags="tester"
     cabal configure --flags="tester"
     cabal repl

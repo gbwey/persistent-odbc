@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 -- | A DB2 backend for @persistent@.
 module Database.Persist.MigrateDB2
     ( getMigrationStrategy 
@@ -15,7 +16,6 @@ import Data.Either (partitionEithers)
 import Data.Function (on)
 import Data.List (find, intercalate, sort, groupBy)
 import Data.Text (Text, pack)
-import Data.Monoid ((<>))
 
 import Data.Conduit
 import qualified Data.Conduit.List as CL
@@ -24,7 +24,15 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+
+#if DEBUG
 import Debug.Trace
+tracex::String -> a -> a
+tracex = trace
+#else
+tracex::String -> a -> a
+tracex _ b = b
+#endif
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@DB2 {} = 
@@ -56,9 +64,9 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _) -> do
         let idtxt = case entityPrimary val of
-                Just pdef -> trace ("found it!!! val=" ++ show val) $ 
+                Just pdef -> tracex ("found it!!! val=" ++ show val) $ 
                               concat [" CONSTRAINT ", escapeDBName (pkeyName (entityDB val)), " PRIMARY KEY (", intercalate "," $ map (escapeDBName . snd) $ primaryFields pdef, ")"]
-                Nothing   -> trace ("not found val=" ++ show val) $
+                Nothing   -> tracex ("not found val=" ++ show val) $
                               concat [escapeDBName $ entityID val
                             , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
         let addTable = AddTable $ concat
@@ -75,9 +83,9 @@ migrate' allDefs getter val = do
                       [ AlterTable name $
                         AddUniqueConstraint uname $
                         map (findTypeOfColumn allDefs name) ucols ]
-        let foreigns = trace ("in migrate' newcols=" ++ show newcols) $ do
+        let foreigns = tracex ("in migrate' newcols=" ++ show newcols) $ do
               Column { cName=cname, cReference=Just (refTblName, a) } <- newcols
-              trace ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
+              tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
                  
         let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
@@ -88,7 +96,7 @@ migrate' allDefs getter val = do
       (_, _, ([], old')) -> do
         let excludeForeignKeys (xs,ys) = (map (\c -> case cReference c of
                                                     Just (_,fk) -> case find (\f -> fk == foreignConstraintNameDBName f) fdefs of
-                                                                     Just _ -> trace ("\n\n\nremoving cos a composite fk="++show fk) $ 
+                                                                     Just _ -> tracex ("\n\n\nremoving cos a composite fk="++show fk) $ 
                                                                                 c { cReference = Nothing }
                                                                      Nothing -> c
                                                     Nothing -> c) xs,ys)
@@ -117,7 +125,7 @@ findTypeOfColumn allDefs name col =
 
 -- | Helper for 'AddRefence' that finds out the 'entityID'.
 addReference :: Show a => [EntityDef a] -> DBName -> DBName -> DBName -> AlterColumn
-addReference allDefs fkeyname reftable cname = trace ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
+addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
                                   AddReference reftable fkeyname [cname] [id_] 
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show reftable
@@ -284,7 +292,7 @@ getColumn getter tname [ PersistByteString cname
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
-                   trace ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $ 
+                   tracex ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $ 
                     return $ Just (DBName $ T.decodeUtf8 tab, DBName $ T.decodeUtf8 ref)
                a1 -> fail $ "DB2.getColumn/getRef: never here error[" ++ show a1 ++ "]"
 
@@ -318,10 +326,11 @@ parseType "DOUBLE"      _ _ = return SqlReal
 parseType "DECIMAL"     _ _ = return SqlReal
 parseType "BLOB"        _ _ = return SqlBlob
 parseType "TIME"        _ _ = return SqlTime
-parseType "NUMERIC"     npre nscl = getNumeric npre nscl
+parseType "NUMERIC"     npre nscl = return $ getNumeric npre nscl
 parseType a             _ _ = error $ "what is this type a="++ show a -- Right $ SqlOther a
 
-getNumeric (PersistInt64 a) (PersistInt64 b) = return $ SqlNumeric (fromIntegral a) (fromIntegral b)
+getNumeric :: PersistValue -> PersistValue -> SqlType
+getNumeric (PersistInt64 a) (PersistInt64 b) = SqlNumeric (fromIntegral a) (fromIntegral b)
 getNumeric a b = error $ "Can not get numeric field precision, got: " ++ show a ++ " and " ++ show b ++ " as precision and scale"
 
 
@@ -369,22 +378,22 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- changed in the columns @oldColumns@ for @newColumn@ to be
 -- supported.
 findAlters :: Show a => DBName -> [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
-    trace ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
+findAlters tblName allDefs col@(Column name isNull type_ def _defConstraintName _maxLen ref) cols =
+    tracex ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
       case filter ((name ==) . cName) cols of
         [] -> case ref of
                Nothing -> ([(name, Add' col)], [])
-               Just (tname, b) -> let cnstr = trace ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
+               Just (tname, b) -> let cnstr = tracex ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
                                               [addReference allDefs (refName tblName name) tname name]
                                   in (map ((,) name) (Add' col : cnstr), cols)
-        Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
+        Column _ isNull' type_' def' _defConstraintName' _maxLen' ref':_ ->
             let -- Foreign key
                 refDrop = case (ref == ref', ref') of
-                            (False, Just (_, cname)) -> trace ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
+                            (False, Just (_, cname)) -> tracex ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
                                                         [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, cname)) -> trace ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
+                            (False, Just (tname, cname)) -> tracex ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
                                                              [(tname, addReference allDefs (refName tblName name) tname name)]
                             _ -> []
                 -- Type and nullability
@@ -392,7 +401,7 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | cmpdef def def' = []
-                       | otherwise   = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                       | otherwise   = --tracex ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                                        case def of
                                          Nothing -> [(name, NoDefault)]
                                          Just s -> [(name, Default $ T.unpack s)]
@@ -420,7 +429,7 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def defConstraintName maxLen ref) = concat
+showColumn (Column n nu t def _defConstraintName maxLen _ref) = concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -440,7 +449,7 @@ showSqlType SqlString (Just len) = "VARCHAR(" ++ show len ++ ")"
 showSqlType SqlInt32 _ = "SMALLINT"
 showSqlType SqlInt64 _ = "BIGINT"
 showSqlType SqlReal _ = "DOUBLE PRECISION"
-showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show prec ++ ")"
+showSqlType (SqlNumeric _s prec) _ = "NUMERIC(" ++ show prec ++ ")"
 showSqlType SqlDay _ = "DATE"
 showSqlType SqlTime _ = "TIME"
 showSqlType SqlDayTime _ = "TIMESTAMP"
@@ -473,11 +482,11 @@ showAlterTable table (AddUniqueConstraint cname cols) = concat
     , intercalate "," $ map (escapeDBName . fst) cols
     , ")"
     ]
-    where
-      escapeDBName' (name, FTTypeCon _ "Text"      ) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, FTTypeCon _ "String"    ) = escapeDBName name ++ "(200)"
-      escapeDBName' (name, FTTypeCon _ "ByteString") = escapeDBName name ++ "(200)"
-      escapeDBName' (name, _                       ) = escapeDBName name
+    --where
+    --  escapeDBName' (name, FTTypeCon _ "Text"      ) = escapeDBName name ++ "(200)"
+    --  escapeDBName' (name, FTTypeCon _ "String"    ) = escapeDBName name ++ "(200)"
+    --  escapeDBName' (name, FTTypeCon _ "ByteString") = escapeDBName name ++ "(200)"
+    --  escapeDBName' (name, _                       ) = escapeDBName name
 showAlterTable table (DropUniqueConstraint cname) = concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -488,7 +497,7 @@ showAlterTable table (DropUniqueConstraint cname) = concat
 
 -- | Render an action that must be done on a column.
 showAlter :: DBName -> AlterColumn' -> String
-showAlter table (oldName, Change (Column n nu t def defConstraintName maxLen _ref)) =
+showAlter table (oldName, Change (Column _n _nu t _def _defConstraintName _maxLen _ref)) =
     concat
         [ "ALTER TABLE "
         , escapeDBName table
@@ -496,22 +505,6 @@ showAlter table (oldName, Change (Column n nu t def defConstraintName maxLen _re
         , escapeDBName oldName
         , " SET DATA TYPE "
         , showSqlType t Nothing
-        ]
-showAlter table (n, IsNull) =
-    concat
-        [ "ALTER TABLE "
-        , escapeDBName table
-        , " ALTER COLUMN "
-        , escapeDBName n
-        , " DROP NOT NULL"
-        ]
-showAlter table (n, NotNull) =
-    concat
-        [ "ALTER TABLE "
-        , escapeDBName table
-        , " ALTER COLUMN "
-        , escapeDBName n
-        , " SET NOT NULL"
         ]
 showAlter table (n, IsNull) =
     concat
@@ -610,7 +603,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
-    Just pdef -> 
+    Just _pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "

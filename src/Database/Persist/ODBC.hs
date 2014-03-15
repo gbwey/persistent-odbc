@@ -44,7 +44,6 @@ import Data.Int (Int64)
 import Data.Conduit
 import Database.Persist.ODBCTypes
 import qualified Data.List as L
-import Debug.Trace
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -69,7 +68,7 @@ withODBCPool dbt ci = withSqlPool $ open' dbt ci
 
 
 -- | Create an ODBC connection pool.  Note that it's your
--- responsability to properly close the connection pool when
+-- responsibility to properly close the connection pool when
 -- unneeded.  Use 'withODBCPool' for an automatic resource
 -- control.
 createODBCPool :: MonadIO m
@@ -88,10 +87,13 @@ withODBCConn :: (MonadIO m, MonadBaseControl IO m)
              => Maybe DBType -> ConnectionString -> (Connection -> m a) -> m a
 withODBCConn dbt cs = withSqlConn (open' dbt cs)
 
+-- | helper function that returns a connection based on the database type
 open' :: Maybe DBType -> ConnectionString -> IO Connection
 open' mdbtype cstr = 
     O.connectODBC cstr >>= openSimpleConn mdbtype
 
+-- | returns a supported database type based on its version 
+-- if the user does not provide the database type explicitly I look it up based on connection metadata
 findDBMS::(String, String, String) -> DBType
 findDBMS dvs@(driver,ver,serverver) 
     | driver=="Oracle" = Oracle $ getServerVersionNumber dvs>=12
@@ -99,9 +101,10 @@ findDBMS dvs@(driver,ver,serverver)
     | driver=="Microsoft SQL Server" = MSSQL $ getServerVersionNumber dvs>=11
     | driver=="MySQL" = MySQL 
     | "PostgreSQL" `L.isPrefixOf` driver = Postgres  
-    | "SQLite" `L.isPrefixOf` driver = trace ("sqlite driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]") $ Sqlite False
+    | "SQLite" `L.isPrefixOf` driver = Sqlite False
     | otherwise = error $ "unknown or unsupported driver[" ++ driver ++ "] ver[" ++ ver ++ "] serverver[" ++ serverver ++ "]\nExplicitly set the type of dbms using DBType and try again!"
 
+-- | extracts the server version number 
 getServerVersionNumber::(String, String, String) -> Integer
 getServerVersionNumber (driver, ver, serverver) = 
       case reads $ takeWhile (/='.') serverver of
@@ -134,7 +137,7 @@ openSimpleConn mdbtype conn = do
         , connRDBMS         = T.pack $ show (dbmsType mig)
         , connLimitOffset   = dbmsLimitOffset mig
         }
-
+-- | Choose the migration strategy based on the user provided database type
 getMigrationStrategy::DBType -> MigrationStrategy
 getMigrationStrategy dbtype = 
   case dbtype of

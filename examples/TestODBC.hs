@@ -120,7 +120,7 @@ Interface
 --  deriving Typeable
   deriving Show
 
-Testother json
+Testother -- json -- no FromJSON instance in aeson anymore for bytestring
   bs1 ByteString Maybe
   bs2 ByteString 
   deriving Show
@@ -600,8 +600,8 @@ main2 = do
 main3::IO ()
 main3 = do
   --let connectionString = "dsn=pg_test"
-  --let connectionString = "dsn=mysql_test"
-  let connectionString = "dsn=mssql_test; Trusted_Connection=True"
+  let connectionString = "dsn=mysql_test"
+  --let connectionString = "dsn=mssql_test; Trusted_Connection=True"
   --let connectionString = "dsn=oracle_test"
   --let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
@@ -631,10 +631,10 @@ main3 = do
 main4::IO ()
 main4 = do
   --let connectionString = "dsn=pg_test"
-  --let connectionString = "dsn=mysql_test"
+  let connectionString = "dsn=mysql_test"
   --let connectionString = "dsn=mssql_test; Trusted_Connection=True"
   --let connectionString = "dsn=oracle_test"
-  let connectionString = "dsn=db2_test"
+  --let connectionString = "dsn=db2_test"
   conn <- H.connectODBC connectionString
   putStrLn "\nbefore create\n"
   stmt <- H.prepare conn "create table fred (nm varchar(100) not null)"

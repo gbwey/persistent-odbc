@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 -- | A MSSQL backend for @persistent@.
 module Database.Persist.MigrateMSSQL
     ( getMigrationStrategy 
@@ -24,7 +25,15 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+
+#if DEBUG
 import Debug.Trace
+tracex::String -> a -> a
+tracex = trace
+#else
+tracex::String -> a -> a
+tracex _ b = b
+#endif
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@MSSQL { mssql2012=ok } = 
@@ -72,9 +81,9 @@ migrate' allDefs getter val = do
                       [ AlterTable name $
                         AddUniqueConstraint uname $
                         map (findTypeOfColumn allDefs name) ucols ]
-        let foreigns = trace ("in migrate' newcols=" ++ show newcols) $ do
+        let foreigns = tracex ("in migrate' newcols=" ++ show newcols) $ do
               Column { cName=cname, cReference=Just (refTblName, a) } <- newcols
-              trace ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
+              tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
                  
         let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
@@ -85,7 +94,7 @@ migrate' allDefs getter val = do
       (_, _, ([], old')) -> do
         let excludeForeignKeys (xs,ys) = (map (\c -> case cReference c of
                                                     Just (_,fk) -> case find (\f -> fk == foreignConstraintNameDBName f) fdefs of
-                                                                     Just _ -> trace ("\n\n\nremoving cos a composite fk="++show fk) $ 
+                                                                     Just _ -> tracex ("\n\n\nremoving cos a composite fk="++show fk) $ 
                                                                                 c { cReference = Nothing }
                                                                      Nothing -> c
                                                     Nothing -> c) xs,ys)
@@ -111,7 +120,7 @@ findTypeOfColumn allDefs name col =
 
 -- | Helper for 'AddRefence' that finds out the 'entityID'.
 addReference :: Show a => [EntityDef a] -> DBName -> DBName -> DBName -> AlterColumn
-addReference allDefs fkeyname reftable cname = trace ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
+addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
                                   AddReference reftable fkeyname [cname] [id_] 
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show reftable
@@ -154,13 +163,14 @@ getColumns :: (Text -> IO Statement)
                  )
 getColumns getter def = do
     -- Find out ID column.
-    stmtIdClmn <- getter "SELECT COLUMN_NAME, \
-                                 \IS_NULLABLE, \
-                                 \DATA_TYPE, \
-                                 \COLUMN_DEFAULT \
-                          \FROM INFORMATION_SCHEMA.COLUMNS \
-                          \WHERE TABLE_NAME   = ? \
-                            \AND COLUMN_NAME  = ?"
+    stmtIdClmn <- getter $ mconcat $ 
+      ["SELECT COLUMN_NAME, "
+      ,"IS_NULLABLE, "
+      ,"DATA_TYPE, "
+      ,"COLUMN_DEFAULT "
+      ,"FROM INFORMATION_SCHEMA.COLUMNS "
+      ,"WHERE TABLE_NAME   = ? "
+      ,"AND COLUMN_NAME  = ?"]
     inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
 
@@ -185,15 +195,16 @@ getColumns getter def = do
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.
-    stmtCntrs <- getter "SELECT CONSTRAINT_NAME, \
-                               \COLUMN_NAME \
-                        \FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE p \
-                        \WHERE TABLE_NAME   = ? \
-                          \AND COLUMN_NAME <> ? \
-                          \AND exists (select 1 from INFORMATION_SCHEMA.TABLE_CONSTRAINTs AS TC where tc.CONSTRAINT_NAME=p.CONSTRAINT_NAME and tc.constraint_type<>'PRIMARY KEY') \
-                          \AND not exists (select 1 from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC where rc.CONSTRAINT_NAME=p.CONSTRAINT_NAME) \
-                        \ORDER BY CONSTRAINT_NAME, \
-                                 \COLUMN_NAME"
+    stmtCntrs <- getter $ mconcat $ 
+      ["SELECT CONSTRAINT_NAME, "
+      ,"COLUMN_NAME "
+      ,"FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE p "
+      ,"WHERE TABLE_NAME   = ? "
+      ,"AND COLUMN_NAME <> ? "
+      ,"AND exists (select 1 from INFORMATION_SCHEMA.TABLE_CONSTRAINTs AS TC where tc.CONSTRAINT_NAME=p.CONSTRAINT_NAME and tc.constraint_type<>'PRIMARY KEY') "
+      ,"AND not exists (select 1 from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC where rc.CONSTRAINT_NAME=p.CONSTRAINT_NAME) "
+      ,"ORDER BY CONSTRAINT_NAME, "
+      ,"COLUMN_NAME"]
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
     liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     -- Return both
@@ -257,20 +268,21 @@ getColumn getter tname [ PersistByteString cname
       type_ <- parseType type'
 
       -- Foreign key (if any)
-      stmt <- lift $ getter "SELECT KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME, \
-      \KCU1.CONSTRAINT_NAME AS CONSTRAINT_NAME, 1 \
-  \FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC \
-  \INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1 \ 
-      \ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG \ 
-      \AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA \ 
-      \AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME \ 
-  \INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU2 \ 
-      \ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG \ 
-      \AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA \
-      \AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME \
-      \AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION \
-      \where KCU1.TABLE_NAME = ? and KCU1.COLUMN_NAME = ? \
-      \order by CONSTRAINT_NAME, KCU1.COLUMN_NAME"
+      stmt <- lift $ getter $ mconcat $
+         ["SELECT KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME, "
+        ,"KCU1.CONSTRAINT_NAME AS CONSTRAINT_NAME, 1 "
+        ,"FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC "
+        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1 " 
+        ,"ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG " 
+        ,"AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA " 
+        ,"AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME " 
+        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU2 " 
+        ,"ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG " 
+        ,"AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA "
+        ,"AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME "
+        ,"AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION "
+        ,"where KCU1.TABLE_NAME = ? and KCU1.COLUMN_NAME = ? "
+        ,"order by CONSTRAINT_NAME, KCU1.COLUMN_NAME"]
 
       let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname
@@ -279,7 +291,7 @@ getColumn getter tname [ PersistByteString cname
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
-                   trace ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $ 
+                   tracex ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $ 
                     return $ Just (DBName $ T.decodeUtf8 tab, DBName $ T.decodeUtf8 ref)
                a1 -> fail $ "MSSQL.getColumn/getRef: never here error[" ++ show a1 ++ "]"
 
@@ -383,21 +395,21 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- supported.
 findAlters :: Show a => DBName -> [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
-    trace ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
+    tracex ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
       case filter ((name ==) . cName) cols of
         [] -> case ref of
                Nothing -> ([(name, Add' col)], [])
-               Just (tname, b) -> let cnstr = trace ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
+               Just (tname, b) -> let cnstr = tracex ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
                                               [addReference allDefs (refName tblName name) tname name]
                                   in (map ((,) name) (Add' col : cnstr), cols)
         Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
             let -- Foreign key
                 refDrop = case (ref == ref', ref') of
-                            (False, Just (_, cname)) -> trace ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
+                            (False, Just (_, cname)) -> tracex ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
                                                         [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, cname)) -> trace ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
+                            (False, Just (tname, cname)) -> tracex ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
                                                              [(tname, addReference allDefs (refName tblName name) tname name)]
                             _ -> []
                 -- Type and nullability
@@ -405,7 +417,7 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
-                       | otherwise   = trace ("\n\nfindAlters modDef col=" ++ show col ++ " name=" ++ show name ++ " def=" ++ show def ++ " def'=" ++ show def' ++ " defConstraintName=" ++ show defConstraintName++" defConstraintName'=" ++ show defConstraintName' ++ "\n\n") $ 
+                       | otherwise   = tracex ("\n\nfindAlters modDef col=" ++ show col ++ " name=" ++ show name ++ " def=" ++ show def ++ " def'=" ++ show def' ++ " defConstraintName=" ++ show defConstraintName++" defConstraintName'=" ++ show defConstraintName' ++ "\n\n") $ 
                                         case def of
                                          Nothing -> [(name, NoDefault $ maybe (error $ "expected a constraint name col="++show name) id defConstraintName')]
                                          Just s -> if cmpdef def def' then [] else [(name, Default $ T.unpack s)]
@@ -428,7 +440,7 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def defConstraintName maxLen ref) = concat
+showColumn (Column n nu t def _defConstraintName maxLen _ref) = concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -491,7 +503,7 @@ showAlterTable table (DropUniqueConstraint cname) = concat
 
 -- | Render an action that must be done on a column.
 showAlter :: DBName -> AlterColumn' -> String
-showAlter table (oldName, Change (Column n nu t def defConstraintName maxLen _ref)) =
+showAlter table (_oldName, Change (Column n nu t def defConstraintName maxLen _ref)) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -521,7 +533,7 @@ showAlter table (n, Default s) =
     , " FOR "
     , escapeDBName n
     ]
-showAlter table (n, NoDefault defConstraintName) =
+showAlter table (_n, NoDefault defConstraintName) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -578,7 +590,7 @@ escapeDBName (DBName s) = '[' : go (T.unpack s)
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
-    Just pdef -> 
+    Just _pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -602,29 +614,29 @@ insertSql' ent vals =
           , intercalate "," $ zipWith doValue (entityFields ent) vals
           , ")"
           ]
-        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
-        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = trace "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
-        doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
-        doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "convert(varbinary(max),?)" -- trace "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
-  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
-  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
-  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = trace "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
+        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = tracex "\n\nin blob with a value\n\n" "convert(varbinary(max),convert(varbinary(max),?))"
+        --doValue (FieldDef { fieldSqlType = SqlBlob }, PersistByteString _) = tracex "\n\nin blob with a value\n\n" "convert(varbinary(max), cast (? as varchar(1000)))"
+        doValue f@FieldDef { fieldSqlType = SqlBlob } PersistNull = error $ "persistent-odbc mssql currently doesn't support inserting nulls in a blob field f=" ++ show f -- tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max), cast ('' as nvarchar(max))), convert(varbinary(max), cast ('' as nvarchar(max))))"
+        doValue FieldDef { fieldSqlType = SqlBlob } (PersistByteString _) = "convert(varbinary(max),?)" -- tracex "\n\nin blob with a value\n\n" "convert(varbinary(max),?)"
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = tracex "\n\nin blob with null\n\n" "iif(? is null, convert(varbinary(max),''), convert(varbinary(max),''))"
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = tracex "\n\nin blob with null\n\n" "isnull(?,'')" -- or 0x not in quotes
+  --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = tracex "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
         doValue _ _ = "?"
 
         
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
-limitOffset mssql2012 (limit,offset) hasOrder sql 
+limitOffset mssql2012' (limit,offset) hasOrder sql 
    | limit==0 && offset==0 = sql
-   | mssql2012 && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
-   | mssql2012 && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
-   | not mssql2012 && offset==0 = case "select " `T.isPrefixOf` T.toLower (T.take 7 sql) of
+   | mssql2012' && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
+   | mssql2012' && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
+   | not mssql2012' && offset==0 = case "select " `T.isPrefixOf` T.toLower (T.take 7 sql) of
                                     True -> let (a,b) = T.splitAt 7 sql 
                                                 ret=a <> T.pack "top " <> T.pack (show limit) <> " " <> b
-                                            in ret -- trace ("ret="++show ret) ret
+                                            in ret -- tracex ("ret="++show ret) ret
                                     False -> if T.null sql then error "MSSQL: not 2012 so trying to add 'top n' but the sql is empty"
                                               else error $ "MSSQL: not 2012 so trying to add 'top n' but is not a select sql=" ++ T.unpack sql
-   | mssql2012 = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql
-   | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql ++ " mssql2012=" ++ show mssql2012 ++ " hasOrder=" ++ show hasOrder
+   | mssql2012' = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql
+   | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql ++ " mssql2012=" ++ show mssql2012' ++ " hasOrder=" ++ show hasOrder
 {-
 limitOffset True (limit,offset) False sql = error "MS SQL Server 2012 requires an order by statement for limit and offset" 
 limitOffset False (limit,offset) _ sql = error "MSSQL does not support limit and offset until MS SQL Server 2012"

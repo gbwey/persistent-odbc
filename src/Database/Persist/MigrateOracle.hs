@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 -- | A Oracle backend for @persistent@.
 module Database.Persist.MigrateOracle
     ( getMigrationStrategy 
@@ -23,7 +24,15 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+
+#if DEBUG
 import Debug.Trace
+tracex::String -> a -> a
+tracex = trace
+#else
+tracex::String -> a -> a
+tracex _ b = b
+#endif
 
 getMigrationStrategy :: DBType -> MigrationStrategy
 getMigrationStrategy dbtype@Oracle { oracle12c=ok} = 
@@ -72,9 +81,9 @@ migrate' allDefs getter val = do
                       [ AlterTable name $
                         AddUniqueConstraint uname $
                         map (findTypeOfColumn allDefs name) ucols ]
-        let foreigns = trace ("in migrate' newcols=" ++ show newcols) $ do
+        let foreigns = tracex ("in migrate' newcols=" ++ show newcols) $ do
               Column { cName=cname, cReference=Just (refTblName, a) } <- newcols
-              trace ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
+              tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
                  
         let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
@@ -82,17 +91,17 @@ migrate' allDefs getter val = do
 
         return $ Right $ map showAlterDb $ addTable : addSequence : uniques ++ foreigns ++ foreignsAlt
       -- No errors and something found, migrate
-      (_, _, ([], old'),mseq) -> do
+      (_, _, ([], old'),mseq') -> do
         let excludeForeignKeys (xs,ys) = (map (\c -> case cReference c of
                                                     Just (_,fk) -> case find (\f -> fk == foreignConstraintNameDBName f) fdefs of
-                                                                     Just _ -> trace ("\n\n\nremoving cos a composite fk="++show fk) $ 
+                                                                     Just _ -> tracex ("\n\n\nremoving cos a composite fk="++show fk) $ 
                                                                                 c { cReference = Nothing }
                                                                      Nothing -> c
                                                     Nothing -> c) xs,ys)
             (acs, ats) = getAlters allDefs name (newcols, udspair) $ excludeForeignKeys $ partitionEithers old'
             acs' = map (AlterColumn name) acs
             ats' = map (AlterTable  name) ats
-        return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq)    
+        return $ Right $ map showAlterDb $ acs' ++ ats' ++ (maybe [addSequence] (const []) mseq')    
       -- Errors
       (_, _, (errs, _), _) -> return $ Left errs
 
@@ -111,7 +120,7 @@ findTypeOfColumn allDefs name col =
 
 -- | Helper for 'AddRefence' that finds out the 'entityID'.
 addReference :: Show a => [EntityDef a] -> DBName -> DBName -> DBName -> AlterColumn
-addReference allDefs fkeyname reftable cname = trace ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
+addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
                                   AddReference reftable fkeyname [cname] [id_] 
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show reftable
@@ -155,46 +164,48 @@ getColumns :: (Text -> IO Statement)
                  )
 getColumns getter def = do
     -- Find out ID column.
-    stmtIdClmn <- getter "SELECT COLUMN_NAME, \
-                                 \cast(NULLABLE as CHAR) as IS_NULLABLE, \
-                                 \DATA_TYPE, \
-                                 \DATA_DEFAULT as COLUMN_DEFAULT \
-                          \FROM user_tab_cols \
-                          \WHERE TABLE_NAME   = ? \
-                            \AND COLUMN_NAME  = ?"
+    stmtIdClmn <- getter $ T.concat 
+                         ["SELECT COLUMN_NAME, "
+                         ,"cast(NULLABLE as CHAR) as IS_NULLABLE, "
+                         ,"DATA_TYPE, "
+                         ,"DATA_DEFAULT as COLUMN_DEFAULT "
+                         ,"FROM user_tab_cols "
+                         ,"WHERE TABLE_NAME   = ? "
+                         ,"AND COLUMN_NAME  = ?"]
     inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
 
     -- Find if sequence already exists.
-    stmtSeq <- getter "SELECT sequence_name \
-                          \FROM user_sequences \
-                          \WHERE sequence_name   = ?"
+    stmtSeq <- getter $ T.concat ["SELECT sequence_name "
+                          ,"FROM user_sequences "
+                          ,"WHERE sequence_name   = ?"]
     seqlist <- runResourceT $ stmtQuery stmtSeq [PersistText $ getSeqNameUnescaped $ entityDB def] $$ CL.consume
     --liftIO $ putStrLn $ "seqlist=" ++ show seqlist
 
     -- Find out all columns.
-    stmtClmns <- getter "SELECT COLUMN_NAME, \
-                                 \cast(NULLABLE as CHAR) as IS_NULLABLE, \
-                               \DATA_TYPE, \
-                               \DATA_DEFAULT \
-                        \FROM user_tab_cols \
-                          \WHERE TABLE_NAME   = ? \
-                          \AND COLUMN_NAME <> ?"
+    stmtClmns <- getter $ T.concat ["SELECT COLUMN_NAME, "
+                                 ,"cast(NULLABLE as CHAR) as IS_NULLABLE, "
+                                 ,"DATA_TYPE, "
+                                 ,"DATA_DEFAULT "
+                        ,"FROM user_tab_cols "
+                          ,"WHERE TABLE_NAME   = ? "
+                          ,"AND COLUMN_NAME <> ?"]
     inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.    
 
-    stmtCntrs <- getter "SELECT a.CONSTRAINT_NAME, \
-                               \a.COLUMN_NAME \
-      \FROM user_cons_columns a,user_constraints b \
-     \WHERE a.table_name = ? \
-     \and a.table_name=b.table_name \
-     \and a.constraint_name=b.constraint_name \
-     \and b.constraint_type in ('U') \
-                          \AND a.COLUMN_NAME <> ? \
-                        \ORDER BY b.CONSTRAINT_NAME, \
-                                 \a.COLUMN_NAME"
+    stmtCntrs <- getter $ T.concat 
+      ["SELECT a.CONSTRAINT_NAME, "
+      ,"a.COLUMN_NAME "
+      ,"FROM user_cons_columns a,user_constraints b "
+      ,"WHERE a.table_name = ? "
+      ,"and a.table_name=b.table_name "
+      ,"and a.constraint_name=b.constraint_name "
+      ,"and b.constraint_type in ('U') "
+      ,"AND a.COLUMN_NAME <> ? "
+      ,"ORDER BY b.CONSTRAINT_NAME, "
+      ,"a.COLUMN_NAME"]
     us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
 
     -- Return both
@@ -250,23 +261,24 @@ getColumn getter tname [ PersistByteString cname
       type_ <- parseType type'
       -- Foreign key (if any)
 
-      stmt <- lift $ getter "SELECT \
-              \UCC.TABLE_NAME as REFERENCED_TABLE_NAME, \
-              \UC.CONSTRAINT_NAME as CONSTRAINT_NAME \
-            \FROM USER_CONSTRAINTS  UC, \
-                 \USER_CONS_COLUMNS UCC, \
-                 \USER_CONS_COLUMNS CC \
-           \WHERE UC.R_CONSTRAINT_NAME = UCC.CONSTRAINT_NAME \
-             \AND uc.constraint_type = 'R' \
-             \and cc.constraint_name=uc.constraint_name \
-             \and ucc.position = 1 \
-             \and cc.position = 1 \
-             \and uc.table_name=? \
-             \and cc.column_name=? \
-           \ORDER BY UC.TABLE_NAME, \
-             \UC.R_CONSTRAINT_NAME, \
-             \UCC.TABLE_NAME, \
-             \UCC.COLUMN_NAME"
+      stmt <- lift $ getter $ T.concat 
+        ["SELECT "
+        ,"UCC.TABLE_NAME as REFERENCED_TABLE_NAME, "
+        ,"UC.CONSTRAINT_NAME as CONSTRAINT_NAME "
+        ,"FROM USER_CONSTRAINTS  UC, "
+        ,"USER_CONS_COLUMNS UCC, "
+        ,"USER_CONS_COLUMNS CC "
+        ,"WHERE UC.R_CONSTRAINT_NAME = UCC.CONSTRAINT_NAME "
+        ,"AND uc.constraint_type = 'R' "
+        ,"and cc.constraint_name=uc.constraint_name "
+        ,"and ucc.position = 1 "
+        ,"and cc.position = 1 "
+        ,"and uc.table_name=? "
+        ,"and cc.column_name=? "
+        ,"ORDER BY UC.TABLE_NAME, "
+        ,"UC.R_CONSTRAINT_NAME, "
+        ,"UCC.TABLE_NAME, "
+        ,"UCC.COLUMN_NAME"]
 
       let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname 
@@ -379,22 +391,22 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- changed in the columns @oldColumns@ for @newColumn@ to be
 -- supported.
 findAlters :: Show a => DBName -> [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
-findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
-    trace ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
+findAlters tblName allDefs col@(Column name isNull type_ def _defConstraintName _maxLen ref) cols =
+    tracex ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
       case filter ((name ==) . cName) cols of
         [] -> case ref of
                Nothing -> ([(name, Add' col)], [])
-               Just (tname, b) -> let cnstr = trace ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
+               Just (tname, b) -> let cnstr = tracex ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
                                               [addReference allDefs (refName tblName name) tname name]
                                   in (map ((,) name) (Add' col : cnstr), cols)
-        Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
+        Column _ isNull' type_' def' _defConstraintName' _maxLen' ref':_ ->
             let -- Foreign key
                 refDrop = case (ref == ref', ref') of
-                            (False, Just (_, cname)) -> trace ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
+                            (False, Just (_, cname)) -> tracex ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
                                                         [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, cname)) -> trace ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
+                            (False, Just (tname, cname)) -> tracex ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
                                                              [(tname, addReference allDefs (refName tblName name) tname name)]
                             _ -> []
                 -- Type and nullability
@@ -402,7 +414,7 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | cmpdef def def' = []
-                       | otherwise   = --trace ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
+                       | otherwise   = --tracex ("findAlters col=" ++ show col ++ " def=" ++ show def ++ " def'=" ++ show def') $
                                        case def of
                                          Nothing -> [(name, NoDefault)]
                                          Just s -> [(name, Default $ T.unpack s)]
@@ -413,7 +425,7 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
 cmpdef::Maybe Text -> Maybe Text -> Bool
 --cmpdef Nothing Nothing = True
 cmpdef = (==)
---cmpdef (Just def) (Just def') = trace ("def[" ++ show (T.concatMap (T.pack . show . ord) def) ++ "] def'[" ++ show (T.concatMap (T.pack . show . ord) def') ++ "]") $ def == def' 
+--cmpdef (Just def) (Just def') = tracex ("def[" ++ show (T.concatMap (T.pack . show . ord) def) ++ "] def'[" ++ show (T.concatMap (T.pack . show . ord) def') ++ "]") $ def == def' 
 --cmpdef _ _ = False
 
 tpcheck :: SqlType -> SqlType -> Bool
@@ -429,7 +441,7 @@ tpcheck a b = a==b
 -- | Prints the part of a @CREATE TABLE@ statement about a given
 -- column.
 showColumn :: Column -> String
-showColumn (Column n nu t def defConstraintName maxLen ref) = concat
+showColumn (Column n nu t def _defConstraintName maxLen _ref) = concat
     [ escapeDBName n
     , " "
     , showSqlType t maxLen
@@ -449,7 +461,7 @@ showSqlType :: SqlType
             -> Maybe Integer -- ^ @maxlen@
             -> String
 showSqlType SqlBlob    Nothing    = "BLOB"
-showSqlType SqlBlob    (Just i)   = "BLOB" -- cannot specify the size 
+showSqlType SqlBlob    (Just _i)  = "BLOB" -- cannot specify the size 
 showSqlType SqlBool    _          = "CHAR"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "TIMESTAMP(6)"
@@ -496,7 +508,7 @@ showAlterTable table (DropUniqueConstraint cname) = concat
 
 -- | Render an action that must be done on a column.
 showAlter :: DBName -> AlterColumn' -> String
-showAlter table (oldName, Change (Column n nu t def defConstraintName maxLen _ref)) =
+showAlter table (_oldName, Change (Column n nu t def defConstraintName maxLen _ref)) =
     concat
     [ "ALTER TABLE "
     , escapeDBName table
@@ -575,10 +587,10 @@ refName :: DBName -> DBName -> DBName
 refName (DBName table) (DBName column) =
     DBName $ T.take 30 $ T.concat [table, "_", column, "_fkey"]
 
-refNames :: DBName -> [DBName] -> DBName
-refNames (DBName table) dbnames =
-    let columns = T.intercalate "_" $ map unDBName dbnames
-    in DBName $ T.take 30 $ T.concat [table, "_", columns, "_fkey"]
+--refNames :: DBName -> [DBName] -> DBName
+--refNames (DBName table) dbnames =
+--    let columns = T.intercalate "_" $ map unDBName dbnames
+--    in DBName $ T.take 30 $ T.concat [table, "_", columns, "_fkey"]
 
 pkeyName :: DBName -> DBName
 pkeyName (DBName table) =
@@ -598,7 +610,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
 insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
-    Just pdef -> 
+    Just _pdef -> 
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -632,8 +644,8 @@ getSeqNameUnescaped::DBName -> Text
 getSeqNameUnescaped (DBName s) = "seq_" <> s <> "_id"
 
 limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
-limitOffset oracle12c (limit,offset) hasOrder sql 
+limitOffset oracle12c' (limit,offset) hasOrder sql 
    | limit==0 && offset==0 = sql
-   | oracle12c && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
-   | oracle12c && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
+   | oracle12c' && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
+   | oracle12c' && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
    | otherwise = error $ "Oracle does not support limit and offset until Oracle 12c sql=" ++ T.unpack sql
