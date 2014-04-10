@@ -1,5 +1,5 @@
 name:               persistent-odbc
-version:            0.1.2.0
+version:            0.1.2.1
 synopsis:           Backend for the persistent library using ODBC
 license:            MIT
 license-file:       LICENSE
@@ -50,6 +50,7 @@ library
                     , HDBC-odbc     >= 2.2 
                     , monad-logger
                     , resourcet
+                    , monad-control
                     , persistent-template >= 1.2    && < 1.4
                     , persistent    >= 1.2    && < 1.4
                     , bytestring    >= 0.9

@@ -9,6 +9,7 @@ import qualified Database.Persist as P
 import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
+import Control.Monad.Trans.Resource (runResourceT,MonadResource)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist.ODBC
@@ -183,12 +184,12 @@ dostuff dbtype = do
     liftIO $ putStrLn $ "before delete zzz=" ++ show zzz
     delete m3
     liftIO $ putStrLn $ "after delete m3"
-    zzz <- get m3
-    liftIO $ putStrLn $ "after get again : should have failed zzz=" ++ show zzz
+    --zzz <- get m3
+    --liftIO $ putStrLn $ "after get again : should have failed zzz=" ++ show zzz
     
     bb <- selectList ([]::[Filter TableManyMany]) []
     liftIO $ putStrLn $ "bb=" ++ show bb ++"\n\n"
-
+{-
     xs <- select $ 
              from $ \ln -> do
                 where_ (ln ^. TableManyRefone E.<=. E.val a1)
@@ -197,7 +198,7 @@ dostuff dbtype = do
 --                E.offset 2
                 return ln
     liftIO $ putStrLn $ show (length xs) ++ " rows: limit=3 offset=2 xs=" ++ show xs
-
+-}
     xs <- select $ 
              from $ \ln -> do
                 where_ (ln ^. TableOneNameone E.<=. E.val "test1 bb")

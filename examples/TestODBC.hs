@@ -7,6 +7,7 @@ module TestODBC where
 import Database.Persist
 import Database.Persist.ODBC
 import Database.Persist.TH
+import Control.Monad.Trans.Resource (runResourceT,MonadResource,ResourceT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
 import Data.Text (Text)

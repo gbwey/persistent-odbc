@@ -40,6 +40,9 @@ import Data.Time.LocalTime (localTimeToUTC, utc)
 import Data.Text (Text)
 import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
+import Control.Monad.Trans.Control (MonadBaseControl)
+import Control.Monad.Trans.Resource (MonadResource)
+
 import Data.Int (Int64)
 import Data.Conduit
 import Database.Persist.ODBCTypes

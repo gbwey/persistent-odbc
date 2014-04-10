@@ -11,6 +11,7 @@ module Database.Persist.MigratePostgres
 
 import Database.Persist.Sql
 import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.Trans.Resource (runResourceT)
 import qualified Data.Text as T
 import Data.Text (pack,Text)
 

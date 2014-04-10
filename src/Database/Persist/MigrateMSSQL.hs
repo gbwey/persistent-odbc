@@ -11,6 +11,7 @@ import Control.Arrow
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Error (ErrorT(..))
+import Control.Monad.Trans.Resource (runResourceT)
 import Data.ByteString (ByteString)
 import Data.Either (partitionEithers)
 import Data.Function (on)
