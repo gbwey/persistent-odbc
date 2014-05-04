@@ -474,7 +474,7 @@ showSqlType (SqlNumeric s prec) _ = "NUMBER(" ++ show s ++ "," ++ show prec ++ "
 showSqlType SqlString  Nothing    = "VARCHAR2(1000)"
 showSqlType SqlString  (Just i)   = "VARCHAR2(" ++ show i ++ ")"
 showSqlType SqlTime    _          = "TIME"
-showSqlType (SqlOther t) _        = error ("oops in showSqlType " ++ show t)  -- $ T.unpack t
+showSqlType (SqlOther t) _        = error ("oops in showSqlType " ++ show t)
 
 -- | Render an action that must be done on the database.
 showAlterDb :: AlterDB -> (Bool, Text)
