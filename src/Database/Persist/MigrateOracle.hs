@@ -25,6 +25,7 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+import Data.Acquire (Acquire, mkAcquire, with)
 
 #if DEBUG
 import Debug.Trace
@@ -47,10 +48,9 @@ getMigrationStrategy dbtype@Oracle { oracle12c=ok} =
 getMigrationStrategy dbtype = error $ "Oracle: calling with invalid dbtype " ++ show dbtype
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrate' :: Show a
-         => [EntityDef a]
+migrate' :: [EntityDef]
          -> (Text -> IO Statement)
-         -> EntityDef SqlType
+         -> EntityDef
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
     let name = entityDB val
@@ -66,8 +66,8 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _, _) -> do
         let idtxt = case entityPrimary val of
-                      Just pdef -> " CONSTRAINT " <> escapeDBName (pkeyName (entityDB val)) <> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . snd) $ primaryFields pdef) <> ")"
-                      Nothing -> concat [escapeDBName $ entityID val, " NUMBER NOT NULL PRIMARY KEY "]
+                      Just pdef -> " CONSTRAINT " <> escapeDBName (pkeyName (entityDB val)) <> " PRIMARY KEY (" <> (intercalate "," $ map (escapeDBName . fieldDB) $ compositeFields pdef) <> ")"
+                      Nothing -> concat [escapeDBName $ fieldDB $ entityId val, " NUMBER NOT NULL PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATe TABLE "
@@ -87,7 +87,7 @@ migrate' allDefs getter val = do
               tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
                  
-        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef)) 
                                         in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignRefTableDBName fdef) (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
 
         return $ Right $ map showAlterDb $ addTable : addSequence : uniques ++ foreigns ++ foreignsAlt
@@ -108,7 +108,7 @@ migrate' allDefs getter val = do
 
 
 -- | Find out the type of a column.
-findTypeOfColumn :: Show a => [EntityDef a] -> DBName -> DBName -> (DBName, FieldType)
+findTypeOfColumn :: [EntityDef] -> DBName -> DBName -> (DBName, FieldType)
 findTypeOfColumn allDefs name col =
     maybe (error $ "Could not find type of column " ++
                    show col ++ " on table " ++ show name ++
@@ -119,8 +119,8 @@ findTypeOfColumn allDefs name col =
             return (fieldType fieldDef)
 
 
--- | Helper for 'AddRefence' that finds out the 'entityID'.
-addReference :: Show a => [EntityDef a] -> DBName -> DBName -> DBName -> AlterColumn
+-- | Helper for 'AddRefence' that finds out the 'entityId'.
+addReference :: [EntityDef] -> DBName -> DBName -> DBName -> AlterColumn
 addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
                                   AddReference reftable fkeyname [cname] [id_] 
     where
@@ -128,7 +128,7 @@ addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="
                          ++ " (allDefs = " ++ show allDefs ++ ")")
                   id $ do
                     entDef <- find ((== reftable) . entityDB) allDefs
-                    return (entityID entDef)
+                    return (fieldDB $ entityId entDef)
 
 data AlterColumn = Change Column
                  | Add' Column
@@ -158,7 +158,7 @@ udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 -- | Returns all of the 'Column'@s@ in the given table currently
 -- in the database.
 getColumns :: (Text -> IO Statement)
-           -> EntityDef a
+           -> EntityDef
            -> IO ( [Either Text (Either Column (DBName, [DBName]))] -- ID column
                  , [Either Text (Either Column (DBName, [DBName]))] -- everything else
                  , Maybe PersistValue -- sequence name
@@ -173,14 +173,14 @@ getColumns getter def = do
                          ,"FROM user_tab_cols "
                          ,"WHERE TABLE_NAME   = ? "
                          ,"AND COLUMN_NAME  = ?"]
-    inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
+    inter1 <- with (stmtQuery stmtIdClmn vals) ($$ CL.consume)
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
 
     -- Find if sequence already exists.
     stmtSeq <- getter $ T.concat ["SELECT sequence_name "
                           ,"FROM user_sequences "
                           ,"WHERE sequence_name   = ?"]
-    seqlist <- runResourceT $ stmtQuery stmtSeq [PersistText $ getSeqNameUnescaped $ entityDB def] $$ CL.consume
+    seqlist <- with (stmtQuery stmtSeq [PersistText $ getSeqNameUnescaped $ entityDB def]) ($$ CL.consume)
     --liftIO $ putStrLn $ "seqlist=" ++ show seqlist
 
     -- Find out all columns.
@@ -191,7 +191,7 @@ getColumns getter def = do
                         ,"FROM user_tab_cols "
                           ,"WHERE TABLE_NAME   = ? "
                           ,"AND COLUMN_NAME <> ?"]
-    inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
+    inter2 <- with (stmtQuery stmtClmns vals) ($$ CL.consume)
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.    
@@ -207,7 +207,7 @@ getColumns getter def = do
       ,"AND a.COLUMN_NAME <> ? "
       ,"ORDER BY b.CONSTRAINT_NAME, "
       ,"a.COLUMN_NAME"]
-    us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
+    us <- with (stmtQuery stmtCntrs vals) ($$ helperCntrs)
 
     -- Return both
     return (ids, cs ++ us, listAsMaybe seqlist)
@@ -217,7 +217,7 @@ getColumns getter def = do
     listAsMaybe xs = error $ "returned to many sequences xs=" ++ show xs
     
     vals = [ PersistText $ unDBName $ entityDB def
-           , PersistText $ unDBName $ entityID def ]
+           , PersistText $ unDBName $ fieldDB $ entityId def ]
 
     helperClmns = CL.mapM getIt =$ CL.consume
         where
@@ -284,7 +284,7 @@ getColumn getter tname [ PersistByteString cname
       let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname 
                  ]
-      cntrs <- runResourceT $ stmtQuery stmt vars $$ CL.consume
+      cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref]] ->
@@ -353,8 +353,7 @@ parseType b            = error $ "oracle: parseType no idea how to parse this b=
 
 -- | @getAlters allDefs tblName new old@ finds out what needs to
 -- be changed from @old@ to become @new@.
-getAlters :: Show a
-          => [EntityDef a]
+getAlters :: [EntityDef]
           -> DBName
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
@@ -391,7 +390,7 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- | @findAlters newColumn oldColumns@ finds out what needs to be
 -- changed in the columns @oldColumns@ for @newColumn@ to be
 -- supported.
-findAlters :: Show a => DBName -> [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
+findAlters :: DBName -> [EntityDef] -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters tblName allDefs col@(Column name isNull type_ def _defConstraintName _maxLen ref) cols =
     tracex ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
       case filter ((name ==) . cName) cols of
@@ -466,7 +465,7 @@ showSqlType SqlBlob    (Just _i)  = "BLOB" -- cannot specify the size
 showSqlType SqlBool    _          = "CHAR"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "TIMESTAMP(6)"
-showSqlType SqlDayTimeZoned _     = "VARCHAR2(50)"
+--showSqlType SqlDayTimeZoned _     = "VARCHAR2(50)"
 showSqlType SqlInt32   _          = "NUMBER"
 showSqlType SqlInt64   _          = "NUMBER"
 showSqlType SqlReal    _          = "FLOAT"
@@ -608,7 +607,7 @@ escapeDBName (DBName s) = '"' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "\""
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' :: EntityDef -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
     Just _pdef -> 
@@ -628,7 +627,7 @@ insertSql' ent vals =
         [ "INSERT INTO "
         , escapeDBName $ entityDB ent
         , "("
-        , escapeDBName $ entityID ent
+        , escapeDBName $ fieldDB $ entityId ent
         , if null (entityFields ent) then "" else ","
         , intercalate "," $ map (escapeDBName . fieldDB) $ entityFields ent
         , ") VALUES("

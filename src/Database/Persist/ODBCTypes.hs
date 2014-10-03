@@ -21,8 +21,8 @@ sqliteMin3619 = Sqlite True
 
 data MigrationStrategy = MigrationStrategy { 
                             dbmsLimitOffset :: (Int,Int) -> Bool -> Text -> Text 
-                           ,dbmsMigrate :: Show a => [EntityDef a] -> (Text -> IO Statement) -> EntityDef SqlType -> IO (Either [Text] [(Bool, Text)])
-                           ,dbmsInsertSql :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+                           ,dbmsMigrate :: [EntityDef] -> (Text -> IO Statement) -> EntityDef -> IO (Either [Text] [(Bool, Text)])
+                           ,dbmsInsertSql :: EntityDef -> [PersistValue] -> InsertSqlResult
                            ,dbmsEscape :: DBName -> Text
                            ,dbmsType :: DBType
                            }

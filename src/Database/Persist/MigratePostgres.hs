@@ -26,6 +26,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.ODBCTypes
+import Data.Acquire (Acquire, mkAcquire, with)
 
 #if DEBUG
 import Debug.Trace
@@ -47,9 +48,9 @@ getMigrationStrategy dbtype@Postgres {} =
                           } 
 getMigrationStrategy dbtype = error $ "Postgres: calling with invalid dbtype " ++ show dbtype
                      
-migrate' :: [EntityDef a]
+migrate' :: [EntityDef]
          -> (Text -> IO Statement)
-         -> EntityDef SqlType
+         -> EntityDef
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
     let name = entityDB val
@@ -64,8 +65,8 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
             if null old
                 then do
                     let idtxt = case entityPrimary val of
-                                  Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . snd) $ primaryFields pdef, ")"]
-                                  Nothing   -> concat [T.unpack $ escape $ entityID val
+                                  Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ compositeFields pdef, ")"]
+                                  Nothing   -> concat [T.unpack $ escape $ entityId val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
@@ -106,7 +107,7 @@ data AlterDB = AddTable String
 
 -- | Returns all of the columns in the given table currently in the database.
 getColumns :: (Text -> IO Statement)
-           -> EntityDef a
+           -> EntityDef
            -> IO [Either Text (Either Column (DBName, [DBName]))]
 getColumns getter def = do
     let sqlv=concat ["SELECT "
@@ -125,7 +126,7 @@ getColumns getter def = do
     stmt <- getter $ pack sqlv
     let vals =
             [ PersistText $ unDBName $ entityDB def
-            , PersistText $ unDBName $ entityID def
+            , PersistText $ unDBName $ entityId def
             ]
     cs <- runResourceT $ stmtQuery stmt vals $$ helperClmns
     let sqlc=concat ["SELECT "
@@ -183,14 +184,14 @@ getColumns getter def = do
 -}
 -- | Check if a column name is listed as the "safe to remove" in the entity
 -- list.
-safeToRemove :: EntityDef a -> DBName -> Bool
+safeToRemove :: EntityDef -> DBName -> Bool
 safeToRemove def (DBName colName)
     = any (elem "SafeToRemove" . fieldAttrs)
     $ filter ((== (DBName colName)) . fieldDB)
     $ entityFields def
 
-getAlters :: [EntityDef a]
-          -> EntityDef SqlType
+getAlters :: [EntityDef]
+          -> EntityDef
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
           -> ([AlterColumn'], [AlterTable])
@@ -292,7 +293,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
     getType "date"        = Right $ SqlDay
     getType "bool"        = Right $ SqlBool
     getType "timestamp"   = Right $ SqlDayTime
-    getType "timestamptz" = Right $ SqlDayTimeZoned
+--    getType "timestamptz" = Right $ SqlDayTimeZoned
     getType "float4"      = Right $ SqlReal
     getType "float8"      = Right $ SqlReal
     getType "bytea"       = Right $ SqlBlob
@@ -305,7 +306,7 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
 getColumn _ a2 x =
     return $ Left $ pack $ "Invalid result from information_schema: " ++ show x ++ " a2[" ++ show a2 ++ "]"
 
-findAlters :: [EntityDef a] -> DBName -> Column -> [Column] -> ([AlterColumn'], [Column])
+findAlters :: [EntityDef] -> DBName -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters defs tablename col@(Column name isNull sqltype def _defConstraintName _maxLen ref) cols =
     tracex ("\n\n\nfindAlters tablename="++show tablename++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $ case filter ((name ==) . cName) cols of
         [] -> ([(name, Add' col)], cols)
@@ -316,7 +317,7 @@ findAlters defs tablename col@(Column name isNull sqltype def _defConstraintName
                 refAdd Nothing = []
                 refAdd (Just (tname, a)) = tracex ("\n\n\n33333 findAlters adding fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
                                            case find ((==tname) . entityDB) defs of
-                                                Just refdef -> [(tname, AddReference a [name] [entityID refdef])]
+                                                Just refdef -> [(tname, AddReference a [name] [entityId refdef])]
                                                 Nothing -> error $ "could not find the entityDef for reftable[" ++ show tname ++ "]"
                 modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
@@ -354,7 +355,7 @@ cmpdef (Just def) (Just def') | def==def' = True
 cmpdef _ _ = False
 
 -- | Get the references to be added to a table for the given column.
-getAddReference :: [EntityDef a] -> DBName -> DBName -> DBName -> Maybe (DBName, DBName) -> Maybe AlterDB
+getAddReference :: [EntityDef] -> DBName -> DBName -> DBName -> Maybe (DBName, DBName) -> Maybe AlterDB
 getAddReference allDefs table reftable cname ref =
     case ref of
         Nothing -> Nothing
@@ -364,7 +365,7 @@ getAddReference allDefs table reftable cname ref =
                             id_ = maybe (error $ "Could not find ID of entity " ++ show reftable)
                                         id $ do
                                           entDef <- find ((== reftable) . entityDB) allDefs
-                                          return (entityID entDef)
+                                          return (entityId entDef)
                           
 
 showColumn :: Column -> String
@@ -389,7 +390,7 @@ showSqlType (SqlNumeric s prec) _ = "NUMERIC(" ++ show s ++ "," ++ show prec ++ 
 showSqlType SqlDay _ = "DATE"
 showSqlType SqlTime _ = "TIME"
 showSqlType SqlDayTime _ = "TIMESTAMP"
-showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
+--showSqlType SqlDayTimeZoned _ = "TIMESTAMP WITH TIME ZONE"
 showSqlType SqlBlob _ = "BYTEA"
 showSqlType SqlBool _ = "BOOLEAN"
 showSqlType (SqlOther t) _ = T.unpack t
@@ -523,7 +524,7 @@ refName (DBName table) (DBName column) =
 udToPair :: UniqueDef -> (DBName, [DBName])
 udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 
-insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' :: EntityDef -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals = tracex ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\n\n") $
   case entityPrimary ent of
     Just _pdef -> 
@@ -546,5 +547,5 @@ insertSql' ent vals = tracex ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\
         , ") VALUES("
         , intercalate "," (map (const "?") $ entityFields ent)
         , ") RETURNING "
-        , T.unpack $ escape $ entityID ent
+        , T.unpack $ escape $ entityId ent
         ]

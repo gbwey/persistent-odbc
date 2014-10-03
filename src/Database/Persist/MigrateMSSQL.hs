@@ -26,6 +26,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
+import Data.Acquire (Acquire, mkAcquire, with)
 
 #if DEBUG
 import Debug.Trace
@@ -50,9 +51,9 @@ getMigrationStrategy dbtype = error $ "MSSQL: calling with invalid dbtype " ++ s
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
 migrate' :: Show a
-         => [EntityDef a]
+         => [EntityDef]
          -> (Text -> IO Statement)
-         -> EntityDef SqlType
+         -> EntityDef
          -> IO (Either [Text] [(Bool, Text)])
 migrate' allDefs getter val = do
     let name = entityDB val
@@ -66,8 +67,8 @@ migrate' allDefs getter val = do
       -- Nothing found, create everything
       ([], [], _) -> do
         let idtxt = case entityPrimary val of
-                Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (escapeDBName . snd) $ primaryFields pdef, ")"]
-                Nothing  -> concat [escapeDBName $ entityID val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
+                Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (escapeDBName . fieldDB) $ compositeFields pdef, ")"]
+                Nothing  -> concat [escapeDBName $ entityId val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATe TABLE "
@@ -108,7 +109,7 @@ migrate' allDefs getter val = do
 
 
 -- | Find out the type of a column.
-findTypeOfColumn :: Show a => [EntityDef a] -> DBName -> DBName -> (DBName, FieldType)
+findTypeOfColumn :: [EntityDef] -> DBName -> DBName -> (DBName, FieldType)
 findTypeOfColumn allDefs name col =
     maybe (error $ "Could not find type of column " ++
                    show col ++ " on table " ++ show name ++
@@ -119,8 +120,8 @@ findTypeOfColumn allDefs name col =
             return (fieldType fieldDef)
 
 
--- | Helper for 'AddRefence' that finds out the 'entityID'.
-addReference :: Show a => [EntityDef a] -> DBName -> DBName -> DBName -> AlterColumn
+-- | Helper for 'AddRefence' that finds out the 'entityId'.
+addReference :: [EntityDef] -> DBName -> DBName -> DBName -> AlterColumn
 addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
                                   AddReference reftable fkeyname [cname] [id_] 
     where
@@ -128,7 +129,7 @@ addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="
                          ++ " (allDefs = " ++ show allDefs ++ ")")
                   id $ do
                     entDef <- find ((== reftable) . entityDB) allDefs
-                    return (entityID entDef)
+                    return (entityId entDef)
 
 data AlterColumn = Change Column
                  | Add' Column
@@ -158,7 +159,7 @@ udToPair ud = (uniqueDBName ud, map snd $ uniqueFields ud)
 -- | Returns all of the 'Column'@s@ in the given table currently
 -- in the database.
 getColumns :: (Text -> IO Statement)
-           -> EntityDef a
+           -> EntityDef
            -> IO ( [Either Text (Either Column (DBName, [DBName]))] -- ID column
                  , [Either Text (Either Column (DBName, [DBName]))] -- everything else
                  )
@@ -212,7 +213,7 @@ getColumns getter def = do
     return (ids, cs ++ us)
   where
     vals = [ PersistText $ unDBName $ entityDB def
-           , PersistText $ unDBName $ entityID def ]
+           , PersistText $ unDBName $ entityId def ]
 
     helperClmns = CL.mapM getIt =$ CL.consume
         where
@@ -357,7 +358,7 @@ parseType b            = error $ "no idea how to handle this type b=" ++ show b 
 -- | @getAlters allDefs tblName new old@ finds out what needs to
 -- be changed from @old@ to become @new@.
 getAlters :: Show a
-          => [EntityDef a]
+          => [EntityDef]
           -> DBName
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
@@ -394,7 +395,7 @@ getAlters allDefs tblName (c1, u1) (c2, u2) =
 -- | @findAlters newColumn oldColumns@ finds out what needs to be
 -- changed in the columns @oldColumns@ for @newColumn@ to be
 -- supported.
-findAlters :: Show a => DBName -> [EntityDef a] -> Column -> [Column] -> ([AlterColumn'], [Column])
+findAlters :: DBName -> [EntityDef] -> Column -> [Column] -> ([AlterColumn'], [Column])
 findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _maxLen ref) cols =
     tracex ("\n\n\nfindAlters tablename="++show tblName++ " name="++ show name++" col="++show col++"\ncols="++show cols++"\n\n\n") $
       case filter ((name ==) . cName) cols of
@@ -462,7 +463,7 @@ showSqlType SqlBlob    (Just i)   = "VARBINARY(" ++ show i ++ ")"
 showSqlType SqlBool    _          = "TINYINT"
 showSqlType SqlDay     _          = "DATE"
 showSqlType SqlDayTime _          = "DATETIME2"
-showSqlType SqlDayTimeZoned _     = "VARCHAR(50)"
+--showSqlType SqlDayTimeZoned _     = "VARCHAR(50)"
 showSqlType SqlInt32   _          = "INT"
 showSqlType SqlInt64   _          = "BIGINT"
 showSqlType SqlReal    _          = "REAL"
@@ -588,7 +589,7 @@ escapeDBName (DBName s) = '[' : go (T.unpack s)
       go ( x :xs) =     x     : go xs
       go ""       = "]"
 -- | SQL code to be executed when inserting an entity.
-insertSql' :: EntityDef SqlType -> [PersistValue] -> InsertSqlResult
+insertSql' :: EntityDef -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
     Just _pdef -> 
