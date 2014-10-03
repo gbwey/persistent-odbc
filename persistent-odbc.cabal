@@ -55,13 +55,6 @@ library
                     , persistent    >= 2.1 && < 3
                     , bytestring    >= 0.9        && < 0.11
 
-  if flag(tester) 
-                    hs-source-dirs: examples
-                    exposed-modules: TestODBC
-                                   , FtypeEnum
-                                   , Employment
-                    build-depends: blaze-html
-                                 , esqueleto
 Executable TestODBC
   if flag(tester)
       build-depends:   persistent-odbc
