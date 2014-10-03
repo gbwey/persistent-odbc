@@ -1,12 +1,13 @@
 {-# LANGUAGE QuasiQuotes, TemplateHaskell, TypeFamilies, OverloadedStrings #-}
 {-# LANGUAGE GADTs, FlexibleContexts #-}
 {-# LANGUAGE EmptyDataDecls    #-}
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
 module TestODBC where
 
 import Database.Persist
 import Database.Persist.ODBC
 import Database.Persist.TH
+import Control.Monad.Trans.Reader (ask)
 import Control.Monad.Trans.Resource (runResourceT,MonadResource,ResourceT)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
@@ -172,7 +173,7 @@ main = do
            xs -> error $ "unknown option:choose p m s so o on d q qn found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
-    conn <- askSqlConn
+    conn <- ask
     let dbtype=read $ T.unpack $ connRDBMS conn
     liftIO $ putStrLn $ "original:" ++ show dbtype' ++ " calculated:" ++ show dbtype
     liftIO $ putStrLn "\nbefore migration\n"

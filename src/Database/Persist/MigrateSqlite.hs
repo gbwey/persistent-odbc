@@ -10,7 +10,6 @@ module Database.Persist.MigrateSqlite
 
 import Data.List (intercalate)
 import Data.Text (Text, pack)
-import Control.Monad.Trans.Resource (runResourceT)
 import Data.Conduit
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
@@ -18,7 +17,7 @@ import qualified Data.Text.Encoding as T
 
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Data.Acquire (Acquire, mkAcquire, with)
+import Data.Acquire (with)
 import Data.Monoid ((<>))
 
 getMigrationStrategy :: DBType -> MigrationStrategy

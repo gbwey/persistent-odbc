@@ -59,9 +59,20 @@ library
                     hs-source-dirs: examples
                     exposed-modules: TestODBC
                                    , FtypeEnum
+                                   , Employment
                     build-depends: blaze-html
                                  , esqueleto
-
+Executable TestODBC
+  if flag(tester)
+      build-depends:   persistent-odbc
+                     , blaze-html
+                     , esqueleto
+  else 
+      buildable: False
+  Main-Is:         TestODBC.hs
+  Hs-Source-Dirs:  examples
+  Other-Modules:   FtypeEnum, Employment,Test1
+  
 source-repository head
   type:     git
   location: git://github.com/gbwey/persistent-odbc.git

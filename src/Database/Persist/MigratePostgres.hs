@@ -26,7 +26,7 @@ import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as T
 
 import Database.Persist.ODBCTypes
-import Data.Acquire (Acquire, mkAcquire, with)
+import Data.Acquire (with)
 
 #if DEBUG
 import Debug.Trace

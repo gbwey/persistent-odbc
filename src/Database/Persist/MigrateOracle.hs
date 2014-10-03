@@ -25,7 +25,7 @@ import qualified Data.Text.Encoding as T
 import Data.Monoid ((<>))
 import Database.Persist.Sql
 import Database.Persist.ODBCTypes
-import Data.Acquire (Acquire, mkAcquire, with)
+import Data.Acquire (with)
 
 #if DEBUG
 import Debug.Trace
