@@ -66,7 +66,7 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                 then do
                     let idtxt = case entityPrimary val of
                                   Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (T.unpack . escape . fieldDB) $ compositeFields pdef, ")"]
-                                  Nothing   -> concat [T.unpack $ escape $ entityId val
+                                  Nothing   -> concat [T.unpack $ escape $ fieldDB $ entityId val
                                         , " SERIAL PRIMARY KEY UNIQUE"]
                     let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
@@ -81,7 +81,7 @@ migrate' allDefs getter val = fmap (fmap $ map showAlterDb) $ do
                     let uniques = flip concatMap udspair $ \(uname, ucols) ->
                             [AlterTable name $ AddUniqueConstraint uname ucols]
                         references = mapMaybe (\c@Column { cName=cname, cReference=Just (refTblName, _) } -> getAddReference allDefs name refTblName cname (cReference c)) $ filter (\c -> cReference c /= Nothing) newcols
-                        foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+                        foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef)) 
                                                     in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
                     return $ Right $ addTable : uniques ++ references ++ foreignsAlt
                 else do
@@ -126,9 +126,9 @@ getColumns getter def = do
     stmt <- getter $ pack sqlv
     let vals =
             [ PersistText $ unDBName $ entityDB def
-            , PersistText $ unDBName $ entityId def
+            , PersistText $ unDBName $ fieldDB $ entityId def
             ]
-    cs <- runResourceT $ stmtQuery stmt vals $$ helperClmns
+    cs <- with (stmtQuery stmt vals) ($$ helperClmns)
     let sqlc=concat ["SELECT "
                           ,"c.constraint_name, "
                           ,"c.column_name "
@@ -148,7 +148,7 @@ getColumns getter def = do
 
     stmt' <- getter $ pack sqlc
         
-    us <- runResourceT $ stmtQuery stmt' vals $$ helperU
+    us <- with (stmtQuery stmt' vals) ($$ helperU)
     liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     return $ cs ++ us
   where
@@ -271,17 +271,17 @@ getColumn getter tname [PersistByteString x, PersistByteString y, PersistByteStr
 
         let ref = refName tname cname
         stmt <- getter sql
-        runResourceT $ stmtQuery stmt
+        with (stmtQuery stmt
                      [ PersistText $ unDBName tname
                      , PersistText $ unDBName ref
-                     ] $$ do
+                     ]) ($$ do
             m <- CL.head
 
             return $ case m of
               Just [PersistText _table, PersistText _col, PersistText reftable, PersistText _refcol, PersistInt64 _pos] -> Just (DBName reftable, ref)
               Just [PersistByteString _table, PersistByteString _col, PersistByteString reftable, PersistByteString _refcol, PersistInt64 _pos] -> Just (DBName (T.decodeUtf8 reftable), ref)
               Nothing -> Nothing
-              _ -> error $ "unexpected result found ["++ show m ++ "]" 
+              _ -> error $ "unexpected result found ["++ show m ++ "]" )
     d' = case d of
             PersistNull   -> Right Nothing
             PersistText t -> Right $ Just t
@@ -317,7 +317,7 @@ findAlters defs tablename col@(Column name isNull sqltype def _defConstraintName
                 refAdd Nothing = []
                 refAdd (Just (tname, a)) = tracex ("\n\n\n33333 findAlters adding fkey defConstraintName'="++show defConstraintName' ++" name="++show name++" tname="++show tname++" a="++show a++" tablename="++show tablename++"\n\n\n") $ 
                                            case find ((==tname) . entityDB) defs of
-                                                Just refdef -> [(tname, AddReference a [name] [entityId refdef])]
+                                                Just refdef -> [(tname, AddReference a [name] [fieldDB $ entityId refdef])]
                                                 Nothing -> error $ "could not find the entityDef for reftable[" ++ show tname ++ "]"
                 modRef = tracex ("modType: sqltype[" ++ show sqltype ++ "] sqltype'[" ++ show sqltype' ++ "] name=" ++ show name) $ 
                     if fmap snd ref == fmap snd ref'
@@ -365,7 +365,7 @@ getAddReference allDefs table reftable cname ref =
                             id_ = maybe (error $ "Could not find ID of entity " ++ show reftable)
                                         id $ do
                                           entDef <- find ((== reftable) . entityDB) allDefs
-                                          return (entityId entDef)
+                                          return (fieldDB $ entityId entDef)
                           
 
 showColumn :: Column -> String
@@ -547,5 +547,5 @@ insertSql' ent vals = tracex ("\n\n\nGBTEST " ++ show (entityFields ent) ++ "\n\
         , ") VALUES("
         , intercalate "," (map (const "?") $ entityFields ent)
         , ") RETURNING "
-        , T.unpack $ escape $ entityId ent
+        , T.unpack $ escape $ fieldDB $ entityId ent
         ]

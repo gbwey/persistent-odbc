@@ -42,6 +42,7 @@ import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Control.Monad.Trans.Control (MonadBaseControl)
 import Control.Monad.Trans.Resource (MonadResource)
+import Control.Monad.Logger
 
 import Data.Int (Int64)
 import Data.Conduit
@@ -56,7 +57,7 @@ type ConnectionString = String
 -- finishes using it.  Note that you should not use the given
 -- 'ConnectionPool' outside the action since it may be already
 -- been released.
-withODBCPool :: MonadIO m
+withODBCPool :: (MonadBaseControl IO m, MonadLogger m, MonadIO m)
              => Maybe DBType 
              -> ConnectionString
              -- ^ Connection string to the database.
@@ -67,14 +68,14 @@ withODBCPool :: MonadIO m
              -- ^ Action to be executed that uses the
              -- connection pool.
              -> m a
-withODBCPool dbt ci = withSqlPool $ open' dbt ci
+withODBCPool dbt ci = withSqlPool (\lg -> open' dbt ci)
 
 
 -- | Create an ODBC connection pool.  Note that it's your
 -- responsibility to properly close the connection pool when
 -- unneeded.  Use 'withODBCPool' for an automatic resource
 -- control.
-createODBCPool :: MonadIO m
+createODBCPool :: (MonadLogger m, MonadIO m, MonadBaseControl IO m)
                => Maybe DBType 
                -> ConnectionString
                -- ^ Connection string to the database.
@@ -82,13 +83,13 @@ createODBCPool :: MonadIO m
                -- ^ Number of connections to be kept open
                -- in the pool.
                -> m ConnectionPool
-createODBCPool dbt ci = createSqlPool $ open' dbt ci
+createODBCPool dbt ci = createSqlPool (\lg -> open' dbt ci)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
-withODBCConn :: (MonadIO m, MonadBaseControl IO m)
+withODBCConn :: (MonadLogger m, MonadIO m, MonadBaseControl IO m)
              => Maybe DBType -> ConnectionString -> (Connection -> m a) -> m a
-withODBCConn dbt cs = withSqlConn (open' dbt cs)
+withODBCConn dbt cs = withSqlConn (\lg -> open' dbt cs)
 
 -- | helper function that returns a connection based on the database type
 open' :: Maybe DBType -> ConnectionString -> IO Connection
@@ -123,7 +124,7 @@ openSimpleConn mdbtype conn = do
               Just dbtype -> getMigrationStrategy dbtype
       
     smap <- newIORef Map.empty
-    return Connection
+    return SqlBackend
         { connPrepare       = prepare' conn
         , connStmtMap       = smap
         , connInsertSql     = dbmsInsertSql mig
@@ -232,7 +233,7 @@ instance DC.Convertible P HSV.SqlValue where
     safeConvert (P (PersistDay d))              = Right $ HSV.toSql d
     safeConvert (P (PersistTimeOfDay t))        = Right $ HSV.toSql t
     safeConvert (P (PersistUTCTime t))          = Right $ HSV.toSql t
-    safeConvert (P (PersistZonedTime (ZT t)))   = Right $ HSV.toSql t
+--    safeConvert (P (PersistZonedTime (ZT t)))   = Right $ HSV.toSql t
     safeConvert (P PersistNull)                 = Right HSV.SqlNull
     safeConvert (P (PersistList l))             = Right $ HSV.toSql $ listToJSON l
     safeConvert (P (PersistMap m))              = Right $ HSV.toSql $ mapToJSON m
@@ -267,10 +268,10 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlRational r)      = Right $ P $ PersistRational r
     safeConvert (HSV.SqlLocalDate d)     = Right $ P $ PersistDay d
     safeConvert (HSV.SqlLocalTimeOfDay t)= Right $ P $ PersistTimeOfDay t
-    safeConvert (HSV.SqlZonedLocalTimeOfDay td tz)
-                    = Right $ P $ PersistZonedTime $ ZT $ ZonedTime (LocalTime (ModifiedJulianDay 0) td) tz
+--    safeConvert (HSV.SqlZonedLocalTimeOfDay td tz)
+--                    = Right $ P $ PersistZonedTime $ ZT $ ZonedTime (LocalTime (ModifiedJulianDay 0) td) tz
     safeConvert (HSV.SqlLocalTime t)     = Right $ P $ PersistUTCTime $ localTimeToUTC utc t
-    safeConvert (HSV.SqlZonedTime zt)    = Right $ P $ PersistZonedTime $ ZT zt
+--    safeConvert (HSV.SqlZonedTime zt)    = Right $ P $ PersistZonedTime $ ZT zt
     safeConvert (HSV.SqlUTCTime t)       = Right $ P $ PersistUTCTime t
     safeConvert (HSV.SqlDiffTime ndt)    = Right $ P $ PersistDouble $ fromRational $ toRational ndt
     safeConvert (HSV.SqlPOSIXTime pt)    = Right $ P $ PersistDouble $ fromRational $ toRational pt

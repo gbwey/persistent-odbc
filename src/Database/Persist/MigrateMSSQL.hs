@@ -50,8 +50,7 @@ getMigrationStrategy dbtype = error $ "MSSQL: calling with invalid dbtype " ++ s
 
 -- | Create the migration plan for the given 'PersistEntity'
 -- @val@.
-migrate' :: Show a
-         => [EntityDef]
+migrate' :: [EntityDef]
          -> (Text -> IO Statement)
          -> EntityDef
          -> IO (Either [Text] [(Bool, Text)])
@@ -68,7 +67,7 @@ migrate' allDefs getter val = do
       ([], [], _) -> do
         let idtxt = case entityPrimary val of
                 Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (escapeDBName . fieldDB) $ compositeFields pdef, ")"]
-                Nothing  -> concat [escapeDBName $ entityId val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
+                Nothing  -> concat [escapeDBName $ fieldDB $ entityId val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATe TABLE "
@@ -88,7 +87,7 @@ migrate' allDefs getter val = do
               tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
                  
-        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\(_,b,_,d) -> (b,d)) (foreignFields fdef)) 
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef)) 
                                         in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignRefTableDBName fdef) (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
         
         return $ Right $ map showAlterDb $ addTable : uniques ++ foreigns ++ foreignsAlt
@@ -129,7 +128,7 @@ addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="
                          ++ " (allDefs = " ++ show allDefs ++ ")")
                   id $ do
                     entDef <- find ((== reftable) . entityDB) allDefs
-                    return (entityId entDef)
+                    return (fieldDB $ entityId entDef)
 
 data AlterColumn = Change Column
                  | Add' Column
@@ -173,7 +172,7 @@ getColumns getter def = do
       ,"FROM INFORMATION_SCHEMA.COLUMNS "
       ,"WHERE TABLE_NAME   = ? "
       ,"AND COLUMN_NAME  = ?"]
-    inter1 <- runResourceT $ stmtQuery stmtIdClmn vals $$ CL.consume
+    inter1 <- with (stmtQuery stmtIdClmn vals) ($$ CL.consume)
     ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
 
     -- Find out all columns.
@@ -193,7 +192,7 @@ getColumns getter def = do
                     ]     
     --liftIO $ putStrLn $ "sql=" ++ show sql                
     stmtClmns <- getter sql                     
-    inter2 <- runResourceT $ stmtQuery stmtClmns vals $$ CL.consume
+    inter2 <- with (stmtQuery stmtClmns vals) ($$ CL.consume)
     cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
 
     -- Find out the constraints.
@@ -207,13 +206,13 @@ getColumns getter def = do
       ,"AND not exists (select 1 from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC where rc.CONSTRAINT_NAME=p.CONSTRAINT_NAME) "
       ,"ORDER BY CONSTRAINT_NAME, "
       ,"COLUMN_NAME"]
-    us <- runResourceT $ stmtQuery stmtCntrs vals $$ helperCntrs
+    us <- with (stmtQuery stmtCntrs vals) ($$ helperCntrs)
     liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     -- Return both
     return (ids, cs ++ us)
   where
     vals = [ PersistText $ unDBName $ entityDB def
-           , PersistText $ unDBName $ entityId def ]
+           , PersistText $ unDBName $ fieldDB $ entityId def ]
 
     helperClmns = CL.mapM getIt =$ CL.consume
         where
@@ -289,7 +288,7 @@ getColumn getter tname [ PersistByteString cname
       let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname
                  ]
-      cntrs <- runResourceT $ stmtQuery stmt vars $$ CL.consume
+      cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
@@ -357,8 +356,7 @@ parseType b            = error $ "no idea how to handle this type b=" ++ show b 
 
 -- | @getAlters allDefs tblName new old@ finds out what needs to
 -- be changed from @old@ to become @new@.
-getAlters :: Show a
-          => [EntityDef]
+getAlters :: [EntityDef]
           -> DBName
           -> ([Column], [(DBName, [DBName])])
           -> ([Column], [(DBName, [DBName])])
