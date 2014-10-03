@@ -1,7 +1,8 @@
 {-# LANGUAGE QuasiQuotes, TemplateHaskell, TypeFamilies, OverloadedStrings #-}
 {-# LANGUAGE GADTs, FlexibleContexts #-}
 {-# LANGUAGE EmptyDataDecls    #-}
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveGeneric #-}
 module TestODBC where
 
 import Database.Persist
@@ -153,6 +154,20 @@ Testlen
   mstr String Maybe maxlen=5
   mbs  ByteString Maybe maxlen=5
   deriving Show
+
+Aaaa json
+  name Text
+  deriving Show Eq Read Ord
+
+Bbbb json
+  name Text
+  deriving Show Eq Read Ord
+
+Both
+  refAaaa Aaaa
+  refBbbb Bbbb
+  Primary refAaaa refBbbb
+  deriving Show Eq
 |]
 
 main :: IO ()
