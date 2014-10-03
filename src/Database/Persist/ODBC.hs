@@ -25,7 +25,7 @@ import qualified Database.Persist.MigrateOracle as ORACLE
 import qualified Database.Persist.MigrateDB2 as DB2
 import qualified Database.Persist.MigrateSqlite as SQLITE
 
-import Data.Time(ZonedTime(..), LocalTime(..), Day(..))
+import Data.Time(ZonedTime(..))
 
 import qualified Database.HDBC.ODBC as O
 import qualified Database.HDBC as O
@@ -41,13 +41,14 @@ import Data.Text (Text)
 import Data.Aeson -- (Object(..), (.:))
 import Control.Monad (mzero)
 import Control.Monad.Trans.Control (MonadBaseControl)
-import Control.Monad.Trans.Resource (MonadResource)
+--import Control.Monad.Trans.Resource (MonadResource)
 import Control.Monad.Logger
 
 import Data.Int (Int64)
 import Data.Conduit
 import Database.Persist.ODBCTypes
 import qualified Data.List as L
+import Data.Acquire (Acquire, mkAcquire)
 -- | An @HDBC-odbc@ connection string.  A simple example of connection
 -- string would be @DSN=hdbctest1@. 
 type ConnectionString = String
@@ -68,7 +69,7 @@ withODBCPool :: (MonadBaseControl IO m, MonadLogger m, MonadIO m)
              -- ^ Action to be executed that uses the
              -- connection pool.
              -> m a
-withODBCPool dbt ci = withSqlPool (\lg -> open' dbt ci)
+withODBCPool dbt ci = withSqlPool (\lg -> open' lg dbt ci)
 
 
 -- | Create an ODBC connection pool.  Note that it's your
@@ -83,18 +84,18 @@ createODBCPool :: (MonadLogger m, MonadIO m, MonadBaseControl IO m)
                -- ^ Number of connections to be kept open
                -- in the pool.
                -> m ConnectionPool
-createODBCPool dbt ci = createSqlPool (\lg -> open' dbt ci)
+createODBCPool dbt ci = createSqlPool (\lg -> open' lg dbt ci)
 
 -- | Same as 'withODBCPool', but instead of opening a pool
 -- of connections, only one connection is opened.
 withODBCConn :: (MonadLogger m, MonadIO m, MonadBaseControl IO m)
-             => Maybe DBType -> ConnectionString -> (Connection -> m a) -> m a
-withODBCConn dbt cs = withSqlConn (\lg -> open' dbt cs)
+             => Maybe DBType -> ConnectionString -> (SqlBackend -> m a) -> m a
+withODBCConn dbt cs = withSqlConn (\lg -> open' lg dbt cs)
 
 -- | helper function that returns a connection based on the database type
-open' :: Maybe DBType -> ConnectionString -> IO Connection
-open' mdbtype cstr = 
-    O.connectODBC cstr >>= openSimpleConn mdbtype
+open' :: LogFunc -> Maybe DBType -> ConnectionString -> IO SqlBackend
+open' logFunc mdbtype cstr = 
+    O.connectODBC cstr >>= openSimpleConn logFunc mdbtype
 
 -- | returns a supported database type based on its version 
 -- if the user does not provide the database type explicitly I look it up based on connection metadata
@@ -117,15 +118,16 @@ getServerVersionNumber (driver, ver, serverver) =
 
 
 -- | Generate a persistent 'Connection' from an odbc 'O.Connection'
-openSimpleConn :: Maybe DBType -> O.Connection -> IO Connection
-openSimpleConn mdbtype conn = do
+openSimpleConn :: LogFunc -> Maybe DBType -> O.Connection -> IO SqlBackend
+openSimpleConn logFunc mdbtype conn = do
     let mig=case mdbtype of 
               Nothing -> getMigrationStrategy $ findDBMS (O.proxiedClientName conn, O.proxiedClientVer conn, O.dbServerVer conn) 
               Just dbtype -> getMigrationStrategy dbtype
       
     smap <- newIORef Map.empty
     return SqlBackend
-        { connPrepare       = prepare' conn
+        { connLogFunc       = logFunc
+        , connPrepare       = prepare' conn
         , connStmtMap       = smap
         , connInsertSql     = dbmsInsertSql mig
         , connClose         = O.disconnect conn
@@ -169,15 +171,17 @@ prepare' conn sql = do
 execute' :: O.Statement -> [PersistValue] -> IO Int64
 execute' query vals = fmap fromInteger $ O.execute query $ map (HSV.toSql . P) vals
 
-withStmt' :: MonadResource m
+withStmt' :: MonadIO m
           => O.Statement
           -> [PersistValue]
-          -> Source m [PersistValue]
+          -> Acquire (Source m [PersistValue])
 withStmt' stmt vals = do
 #if DEBUG
     liftIO $ putStrLn $ "withStmt': vals: " ++ show vals
 #endif
-    bracketP openS closeS pull
+    result <- mkAcquire openS closeS
+    return $ pull result 
+    --bracketP openS closeS pull
   where
     openS       = execute' stmt vals >> return ()
     closeS _    = O.finish stmt
@@ -208,7 +212,7 @@ data OdbcConf = OdbcConf
 instance PersistConfig OdbcConf where
     type PersistConfigBackend OdbcConf = SqlPersistT
     type PersistConfigPool OdbcConf = ConnectionPool
-    createPoolConfig (OdbcConf cs size dbtype) = createODBCPool (read dbtype) cs size
+    createPoolConfig (OdbcConf cs size dbtype) = runNoLoggingT $ createODBCPool (read dbtype) cs size
     runPool _ = runSqlPool
     loadConfig (Object o) = do
         cstr    <- o .: "connStr"
@@ -268,10 +272,9 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlRational r)      = Right $ P $ PersistRational r
     safeConvert (HSV.SqlLocalDate d)     = Right $ P $ PersistDay d
     safeConvert (HSV.SqlLocalTimeOfDay t)= Right $ P $ PersistTimeOfDay t
---    safeConvert (HSV.SqlZonedLocalTimeOfDay td tz)
---                    = Right $ P $ PersistZonedTime $ ZT $ ZonedTime (LocalTime (ModifiedJulianDay 0) td) tz
+    safeConvert (HSV.SqlZonedLocalTimeOfDay td _) = Right $ P $ PersistTimeOfDay td
     safeConvert (HSV.SqlLocalTime t)     = Right $ P $ PersistUTCTime $ localTimeToUTC utc t
---    safeConvert (HSV.SqlZonedTime zt)    = Right $ P $ PersistZonedTime $ ZT zt
+    safeConvert (HSV.SqlZonedTime zt)    = Right $ P $ PersistUTCTime $ localTimeToUTC utc (zonedTimeToLocalTime zt)
     safeConvert (HSV.SqlUTCTime t)       = Right $ P $ PersistUTCTime t
     safeConvert (HSV.SqlDiffTime ndt)    = Right $ P $ PersistDouble $ fromRational $ toRational ndt
     safeConvert (HSV.SqlPOSIXTime pt)    = Right $ P $ PersistDouble $ fromRational $ toRational pt
