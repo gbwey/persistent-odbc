@@ -1,0 +1,57 @@
+{-
+mysql> ALTER TABLE blog_post 
+ADD CONSTRAINT personzfkey 
+ FOREIGN KEY(ref_personz)
+ REFERENCES personz(id);
+ERROR 1215 (HY000): Cannot add foreign key constraint
+
+SHOW ENGINE INNODB STATUS\G
+-- scroll up to where 
+------------------------
+LATEST FOREIGN KEY ERROR
+------------------------
+2014-10-03 21:31:12 27e0 Error in foreign key constraint of table mydb/#sql-26d8_3:
+ FOREIGN KEY(ref_personz) REFERENCES personz(id):
+Cannot find an index in the referenced table where the
+referenced columns appear as the first columns, or column types
+in the table and the referenced table do not match for constraint.
+Note that the internal storage type of ENUM and SET changed in
+tables created with >= InnoDB-4.1.12, and such columns in old tables
+cannot be referenced by such columns in new tables.
+See http://dev.mysql.com/doc/refman/5.6/en/innodb-foreign-key-constraints.html
+for correct foreign key definition.
+
+mysql> describe blog_post;
++-------------+------------+------+-----+---------+----------------+
+| Field       | Type       | Null | Key | Default | Extra          |
++-------------+------------+------+-----+---------+----------------+
+| id          | bigint(20) | NO   | PRI | NULL    | auto_increment |
+| title       | text       | NO   |     | NULL    |                |
+| ref_personz | int(11)    | NO   |     | NULL    |                |
++-------------+------------+------+-----+---------+----------------+
+3 rows in set (0.02 sec)
+
+mysql> describe personz;
++-------+------------+------+-----+---------+----------------+
+| Field | Type       | Null | Key | Default | Extra          |
++-------+------------+------+-----+---------+----------------+
+| id    | bigint(20) | NO   | PRI | NULL    | auto_increment |
+| name  | text       | NO   |     | NULL    |                |
+| age   | int(11)    | YES  |     | NULL    |                |
++-------+------------+------+-----+---------+----------------+
+3 rows in set (0.00 sec)
+
+-- mismatched types 
+ref_personz | int(11)
+id    | bigint(20)
+
+mysql> alter table blog_post modify column ref_personz bigint(20) not null;
+Query OK, 0 rows affected (0.50 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+mysql> ALTER TABLE blog_post ADD CONSTRAINT personzfkey FOREIGN KEY(ref_personz)
+ REFERENCES personz(id);
+Query OK, 0 rows affected (0.54 sec)
+Records: 0  Duplicates: 0  Warnings: 0
+
+-}

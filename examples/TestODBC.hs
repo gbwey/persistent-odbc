@@ -155,13 +155,13 @@ Testlen
   mbs  ByteString Maybe maxlen=5
   deriving Show
 
-Aaaa json
+Aaaa
   name String maxlen=100
-  deriving Show Eq Read Ord
+  deriving Show Eq
 
-Bbbb json
+Bbbb
   name String maxlen=100
-  deriving Show Eq Read Ord
+  deriving Show Eq
 
 Both
   refAaaa AaaaId
