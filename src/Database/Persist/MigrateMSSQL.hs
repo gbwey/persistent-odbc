@@ -67,7 +67,7 @@ migrate' allDefs getter val = do
       ([], [], _) -> do
         let idtxt = case entityPrimary val of
                 Just pdef -> concat [" PRIMARY KEY (", intercalate "," $ map (escapeDBName . fieldDB) $ compositeFields pdef, ")"]
-                Nothing  -> concat [escapeDBName $ fieldDB $ entityId val, " BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
+                Nothing  -> concat [escapeDBName $ fieldDB $ entityId val, " INT NOT NULL IDENTITY(1,1) PRIMARY KEY "]
         let addTable = AddTable $ concat
                             -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATe TABLE "

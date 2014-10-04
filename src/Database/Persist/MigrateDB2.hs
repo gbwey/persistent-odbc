@@ -69,7 +69,7 @@ migrate' allDefs getter val = do
                               concat [" CONSTRAINT ", escapeDBName (pkeyName (entityDB val)), " PRIMARY KEY (", intercalate "," $ map (escapeDBName . fieldDB) $ compositeFields pdef, ")"]
                 Nothing   -> tracex ("not found val=" ++ show val) $
                               concat [escapeDBName $ fieldDB $ entityId val
-                            , " BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
+                            , " SMALLINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1, INCREMENT BY 1) PRIMARY KEY "]
         let addTable = AddTable $ concat
                 -- Lower case e: see Database.Persist.Sql.Migration
                 [ "CREATe TABLE "
