@@ -43,6 +43,7 @@ Child7
     name  String maxlen=20
     name2 String maxlen=20
     age Int
+    extra Text maxlen=50
     Foreign Parent7 fkparent7 name name2 age
     deriving Show Eq
 |]
@@ -71,4 +72,17 @@ main = do
     liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
-    
+    p1 <- insert $ Parent7 "k1a" "k1b" 100  
+    p2 <- insert $ Parent7 "k2a" "k2b" 200  
+    p3 <- insert $ Parent7 "k3a" "k3b" 300  
+
+    c1 <- insert $ Child7 "k1a" "k1b" 100 "extra11"
+    c2 <- insert $ Child7 "k2a" "k2b" 200 "extra22"
+    --c2x <- insert $ Child7 "k2a" "k2b" 900 "extra33"
+{-
+    [Value mpos] <- select $ 
+                       from $ \ln -> do
+                          where_ (ln ^. LineXsdid E.==. E.val x11)
+                          return $ E.joinV $ E.max_ (E.just (ln ^. LinePos))
+-}
+    return ()
