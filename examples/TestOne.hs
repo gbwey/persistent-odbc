@@ -72,17 +72,59 @@ main = do
     liftIO $ putStrLn "\nbefore migration\n"
     runMigration migrateAll
     liftIO $ putStrLn "after migration"
+{-
     p1 <- insert $ Parent7 "k1a" "k1b" 100  
     p2 <- insert $ Parent7 "k2a" "k2b" 200  
     p3 <- insert $ Parent7 "k3a" "k3b" 300  
 
     c1 <- insert $ Child7 "k1a" "k1b" 100 "extra11"
-    c2 <- insert $ Child7 "k2a" "k2b" 200 "extra22"
+    c1a <- insert $ Child7 "k1a" "k1b" 100 "extra11aa"
+    c2 <- insert $ Child7 "k2a" "k2b" 200 "extra11"
     --c2x <- insert $ Child7 "k2a" "k2b" 900 "extra33"
+-}
 {-
-    [Value mpos] <- select $ 
-                       from $ \ln -> do
-                          where_ (ln ^. LineXsdid E.==. E.val x11)
-                          return $ E.joinV $ E.max_ (E.just (ln ^. LinePos))
+    liftIO $ putStrLn "before esqueleto test 1"
+    xs <- select $ 
+           from $ \p -> do
+              where_ (p ^. Parent7Name2 E.==. E.val "k1b")
+              return p
+    liftIO $ putStrLn $ "xs=" ++ show xs          
+-}
+    liftIO $ putStrLn "before esqueleto test 2"
+    ys <- select $ 
+           from $ \(p,c) -> do
+              where_ (p ^. Parent7Name2 E.==. c ^. Child7Name2)
+              return (p,c)
+    liftIO $ putStrLn $ "ys=" ++ show ys          
+
+
+    liftIO $ putStrLn "before esqueleto test 3"
+    bs <- select $
+                 from $ \(c `E.InnerJoin` p) -> do
+                 E.on $ p ^. Parent7Name E.==. c ^. Child7Name
+                 return (p,c)
+    liftIO $ putStrLn $ "bs=" ++ show bs          
+
+{-
+    liftIO $ putStrLn "before esqueleto test 4"
+    zs <- select $ 
+           from $ \p -> do
+              where_ (p ^. Parent7Id E.==. E.valkey (Parent7 "k1a" "k1b" 100))
+              return p
+    liftIO $ putStrLn $ "zs=" ++ show zs      
+
+    liftIO $ putStrLn "before esqueleto test 5"    
+    ws <- select $ 
+           from $ \(p,c) -> do
+              where_ (c ^. Child7Extra E.==. E.val "extra11" E.&&. p ^. Parent7Id E.==. c ^. Child7Parent7)
+              return (p,c)
+    liftIO $ putStrLn $ "ws=" ++ show ws          
 -}
     return ()
+    
+{-
+before esqueleto test 2
+*** Exception: SqlError {seState = "[\"42S22\"]", seNativeError = -1, seErrorMsg
+ = "execute execute: [\"1054: [MySQL][ODBC 5.2(a) Driver][mysqld-5.6.13-log]Unkn
+own column 'parent7.id' in 'field list'\"]"}
+-}
