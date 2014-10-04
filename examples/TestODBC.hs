@@ -34,7 +34,7 @@ import Data.Ratio
 import Text.Blaze.Html
 --import Debug.Trace
 
-share [mkPersist sqlOnlySettings, mkMigrate "migrateAll", mkDeleteCascade sqlOnlySettings] [persistLowerCase|
+share [mkPersist sqlSettings, mkMigrate "migrateAll", mkDeleteCascade sqlOnlySettings] [persistLowerCase|
 Test0 
     mybool Bool
     deriving Show

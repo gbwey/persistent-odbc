@@ -2,7 +2,7 @@
 {-# LANGUAGE GADTs, FlexibleContexts #-}
 {-# LANGUAGE EmptyDataDecls    #-}
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, GeneralizedNewtypeDeriving, DeriveGeneric #-}
 module Test1 where
 
 import qualified Database.Persist as P
@@ -10,6 +10,7 @@ import Database.Persist.TH
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
 import Control.Monad.Trans.Resource (runResourceT,MonadResource)
+import Control.Monad.Trans.Reader (ask)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist.ODBC
@@ -24,7 +25,7 @@ import Data.Int
 import Debug.Trace
 import Control.Monad (when)
 
-share [mkPersist sqlOnlySettings, mkMigrate "migrateAll"] [persistLowerCase|
+share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 G0
     g1 String 
     g2 String 
@@ -110,7 +111,7 @@ main = do
            xs -> error $ "unknown option:choose p m s so o on d q qn found[" ++ xs ++ "]"
 
   runResourceT $ runNoLoggingT $ withODBCConn Nothing dsn $ runSqlConn $ do
-    conn <- askSqlConn
+    conn <- ask
     let dbtype::DBType
         dbtype=read $ T.unpack $ connRDBMS conn
     liftIO $ putStrLn $ "original:" ++ show dbtype' ++ " calculated:" ++ show dbtype
