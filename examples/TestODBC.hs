@@ -78,33 +78,33 @@ Personz
     deriving Show
 BlogPost
     title String
-    authorId PersonzId
+    refPersonz PersonzId
     deriving Show
 
 Asm
-  name Text
-  description Text
+  name String
+  description String
   Unique MyUniqueAsm name
 --  deriving Typeable
   deriving Show
   
 Xsd
-  name Text
-  description Text
+  name String
+  description String
   asmid AsmId
   Unique MyUniqueXsd name -- global
 --  deriving Typeable
   deriving Show
   
 Ftype
-  name Text
+  name String
   Unique MyUniqueFtype name
 --  deriving Typeable
   deriving Show
 
 Line
-  name Text
-  description Text
+  name String
+  description String
   pos Int
   ftypeid FtypeEnum
   xsdid XsdId
@@ -115,8 +115,8 @@ Line
   
 
 Interface
-  name Text
-  fname Text
+  name String
+  fname String
   ftypeid FtypeId
   iname FtypeEnum
   Unique MyUniqueInterface name
@@ -147,25 +147,25 @@ Testblob3
   deriving Show
 
 Testlen
-  txt  Text maxlen=5 -- default='xx12'
+  txt  String maxlen=5 -- default='xx12'
   str  String maxlen=5
   bs   ByteString maxlen=5
-  mtxt Text Maybe maxlen=5
+  mtxt String Maybe maxlen=5
   mstr String Maybe maxlen=5
   mbs  ByteString Maybe maxlen=5
   deriving Show
 
 Aaaa json
-  name Text
+  name String maxlen=100
   deriving Show Eq Read Ord
 
 Bbbb json
-  name Text
+  name String maxlen=100
   deriving Show Eq Read Ord
 
 Both
-  refAaaa Aaaa
-  refBbbb Bbbb
+  refAaaa AaaaId
+  refBbbb BbbbId
   Primary refAaaa refBbbb
   deriving Show Eq
 |]
@@ -255,7 +255,7 @@ testbase dbtype = do
     unless (length aa == 2) $ error $ "wrong number of Testnum rows " ++ show aa
 
     delete janeId
-    deleteWhere [BlogPostAuthorId ==. johnId]
+    deleteWhere [BlogPostRefPersonz ==. johnId]
     test0
     test1 dbtype
     test2 
