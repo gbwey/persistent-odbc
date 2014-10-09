@@ -283,6 +283,6 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
 
 charChk :: Char -> PersistValue
-charChk '\0' = PersistBool True
-charChk '\1' = PersistBool False
+charChk '\0' = PersistBool False
+charChk '\1' = PersistBool True
 charChk c = PersistText $ T.singleton c
