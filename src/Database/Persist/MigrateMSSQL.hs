@@ -286,7 +286,7 @@ getColumn getter tname [ PersistByteString cname
         ,"order by CONSTRAINT_NAME, KCU1.COLUMN_NAME"]
 
       let vars = [ PersistText $ unDBName tname
-                 , PersistByteString cname
+                 , PersistText $ T.decodeUtf8 cname
                  ]
       cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
       ref <- case cntrs of
