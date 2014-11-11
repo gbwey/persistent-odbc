@@ -77,7 +77,7 @@ Executable TestODBC
                     , transformers  >= 0.3
                     , convertible   >= 1.0
                     , HDBC          >= 2.2
-                    , HDBC-odbc     >= 2.2
+                    , HDBC-odbc     >= 2.4
                     , monad-logger
                     , resourcet
                     , monad-control
