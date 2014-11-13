@@ -1,5 +1,5 @@
 name:               persistent-odbc
-version:            0.2.0.0
+version:            0.2.0.1
 synopsis:           Backend for the persistent library using ODBC
 license:            MIT
 license-file:       LICENSE
