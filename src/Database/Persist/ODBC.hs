@@ -198,7 +198,7 @@ withStmt' stmt vals = do
               )
               mr
 
--- | Information required to connect to a PostgreSQL database
+-- | Information required to connect to an ODBC database
 -- using @persistent@'s generic facilities.  These values are the
 -- same that are given to 'withODBCPool'.
 data OdbcConf = OdbcConf
