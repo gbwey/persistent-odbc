@@ -130,6 +130,7 @@ openSimpleConn logFunc mdbtype conn = do
         , connPrepare       = prepare' conn
         , connStmtMap       = smap
         , connInsertSql     = dbmsInsertSql mig
+        , connInsertManySql = Nothing
         , connClose         = O.disconnect conn
         , connMigrateSql    = dbmsMigrate mig
         , connBegin         = const 
@@ -142,6 +143,8 @@ openSimpleConn logFunc mdbtype conn = do
         , connNoLimit       = "" -- esqueleto uses this but needs to use connLimitOffset then we can dump this field
         , connRDBMS         = T.pack $ show (dbmsType mig)
         , connLimitOffset   = dbmsLimitOffset mig
+        , connMaxParams     = Nothing
+        , connUpsertSql     = Nothing
         }
 -- | Choose the migration strategy based on the user provided database type
 getMigrationStrategy::DBType -> MigrationStrategy
