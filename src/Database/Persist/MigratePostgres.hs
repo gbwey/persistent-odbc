@@ -11,7 +11,6 @@ module Database.Persist.MigratePostgres
 
 import Database.Persist.Sql
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Trans.Resource (runResourceT)
 import qualified Data.Text as T
 import Data.Text (pack,Text)
 
@@ -400,7 +399,7 @@ showAlterDb (AddTable s) = (False, pack s)
 showAlterDb (AlterColumn t (c, ac)) =
     (isUnsafe ac, pack $ showAlter t (c, ac))
   where
-    isUnsafe (Drop safeToRemove) = not safeToRemove
+    isUnsafe (Drop safeToRem) = not safeToRem
     isUnsafe _ = False
 showAlterDb (AlterTable t at) = (False, pack $ showAlterTable t at)
 
