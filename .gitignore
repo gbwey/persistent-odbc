@@ -21,3 +21,5 @@ tags
 *.sav
 tags
 *~
+
+.stack-work/

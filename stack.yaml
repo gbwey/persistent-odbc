@@ -1,0 +1,7 @@
+resolver: lts-11.17
+
+packages:
+- .
+
+extra-deps:
+- HDBC-odbc-2.5.0.1

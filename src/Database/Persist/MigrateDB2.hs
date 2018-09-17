@@ -18,7 +18,7 @@ import Data.Function (on)
 import Data.List (find, intercalate, sort, groupBy)
 import Data.Text (Text, pack)
 
-import Data.Conduit
+import Data.Conduit (connect, (.|))
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -184,8 +184,8 @@ getColumns getter def = do
                           ,"AND tabname=? "
                           ,"AND colname <> ?"]
   
-    inter1 <- with (stmtQuery stmtIdClmn vals) ($$ CL.consume)
-    ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
+    inter1 <- with (stmtQuery stmtIdClmn vals) (`connect` CL.consume)
+    ids <- runResourceT $ CL.sourceList inter1 `connect` helperClmns -- avoid nested queries
 
     -- Find out all columns.
     stmtClmns <- getter $ T.concat 
@@ -200,8 +200,8 @@ getColumns getter def = do
                           ,"WHERE tabschema=current_schema "
                           ,"AND tabname=? "
                           ,"AND colname <> ?"]
-    inter2 <- with (stmtQuery stmtClmns vals) ($$ CL.consume)
-    cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
+    inter2 <- with (stmtQuery stmtClmns vals) (`connect` CL.consume)
+    cs <- runResourceT $ CL.sourceList inter2 `connect` helperClmns -- avoid nested queries
 
     -- Find out the constraints.
     stmtCntrs <- getter $ T.concat ["SELECT "
@@ -224,7 +224,7 @@ getColumns getter def = do
                           ,"AND trim(pk_colnames) <> ? "
                           ,"ORDER BY constraint_name, column_name"]
 
-    us <- with (stmtQuery stmtCntrs (vals++vals)) ($$ helperCntrs)
+    us <- with (stmtQuery stmtCntrs (vals++vals)) (`connect` helperCntrs)
     liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     -- Return both
     return (ids, cs ++ us)
@@ -232,7 +232,7 @@ getColumns getter def = do
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ fieldDB $ entityId def ]
 
-    helperClmns = CL.mapM getIt =$ CL.consume
+    helperClmns = CL.mapM getIt .| CL.consume
         where
           getIt = fmap (either Left (Right . Left)) .
                   liftIO .
@@ -289,7 +289,7 @@ getColumn getter tname [ PersistByteString cname
       let vars = [ PersistText $ unDBName tname
                  , PersistByteString cname
                  ]
-      cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
+      cntrs <- liftIO $ with (stmtQuery stmt vars) (`connect` CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
