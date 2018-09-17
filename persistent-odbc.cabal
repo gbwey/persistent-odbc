@@ -49,7 +49,7 @@ library
                     , HDBC          >= 2.2
                     , HDBC-odbc     >= 2.4
                     , monad-logger
-                    , resourcet
+                    , resourcet     >= 1.1.11 && < 1.2
                     , monad-control
                     , persistent-template >= 2.1 && < 3
                     , persistent    >= 2.6.1 && < 3
