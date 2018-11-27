@@ -19,7 +19,7 @@ import Data.List (find, intercalate, sort, groupBy)
 import Data.Text (Text, pack)
 import Data.Monoid ((<>), mconcat)
 
-import Data.Conduit
+import Data.Conduit (connect, (.|))
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -172,8 +172,8 @@ getColumns getter def = do
       ,"FROM INFORMATION_SCHEMA.COLUMNS "
       ,"WHERE TABLE_NAME   = ? "
       ,"AND COLUMN_NAME  = ?"]
-    inter1 <- with (stmtQuery stmtIdClmn vals) ($$ CL.consume)
-    ids <- runResourceT $ CL.sourceList inter1 $$ helperClmns -- avoid nested queries
+    inter1 <- with (stmtQuery stmtIdClmn vals) (`connect` CL.consume)
+    ids <- runResourceT $ CL.sourceList inter1 `connect` helperClmns -- avoid nested queries
 
     -- Find out all columns.
     let sql=mconcat [
@@ -192,8 +192,8 @@ getColumns getter def = do
                     ]     
     --liftIO $ putStrLn $ "sql=" ++ show sql                
     stmtClmns <- getter sql                     
-    inter2 <- with (stmtQuery stmtClmns vals) ($$ CL.consume)
-    cs <- runResourceT $ CL.sourceList inter2 $$ helperClmns -- avoid nested queries
+    inter2 <- with (stmtQuery stmtClmns vals) (`connect` CL.consume)
+    cs <- runResourceT $ CL.sourceList inter2 `connect` helperClmns -- avoid nested queries
 
     -- Find out the constraints.
     stmtCntrs <- getter $ mconcat $ 
@@ -206,7 +206,7 @@ getColumns getter def = do
       ,"AND not exists (select 1 from INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC where rc.CONSTRAINT_NAME=p.CONSTRAINT_NAME) "
       ,"ORDER BY CONSTRAINT_NAME, "
       ,"COLUMN_NAME"]
-    us <- with (stmtQuery stmtCntrs vals) ($$ helperCntrs)
+    us <- with (stmtQuery stmtCntrs vals) (`connect` helperCntrs)
     liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
     -- Return both
     return (ids, cs ++ us)
@@ -214,7 +214,7 @@ getColumns getter def = do
     vals = [ PersistText $ unDBName $ entityDB def
            , PersistText $ unDBName $ fieldDB $ entityId def ]
 
-    helperClmns = CL.mapM getIt =$ CL.consume
+    helperClmns = CL.mapM getIt .| CL.consume
         where
           getIt = fmap (either Left (Right . Left)) .
                   liftIO .
@@ -288,7 +288,7 @@ getColumn getter tname [ PersistByteString cname
       let vars = [ PersistText $ unDBName tname
                  , PersistText $ T.decodeUtf8 cname
                  ]
-      cntrs <- with (stmtQuery stmt vars) ($$ CL.consume)
+      cntrs <- liftIO $ with (stmtQuery stmt vars) (`connect` CL.consume)
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
