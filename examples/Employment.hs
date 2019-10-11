@@ -1,4 +1,5 @@
 -- @Employment.hs
+{-# OPTIONS -Wall #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Employment where
 

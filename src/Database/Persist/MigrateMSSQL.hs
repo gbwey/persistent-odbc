@@ -1,10 +1,11 @@
+{-# OPTIONS -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE CPP #-}
 -- | A MSSQL backend for @persistent@.
 module Database.Persist.MigrateMSSQL
-    ( getMigrationStrategy 
+    ( getMigrationStrategy
     ) where
 
 import Control.Arrow
@@ -30,15 +31,15 @@ import Data.Acquire (with)
 
 #if DEBUG
 import Debug.Trace
-tracex::String -> a -> a
+tracex :: String -> a -> a
 tracex = trace
 #else
-tracex::String -> a -> a
+tracex :: String -> a -> a
 tracex _ b = b
 #endif
 
 getMigrationStrategy :: DBType -> MigrationStrategy
-getMigrationStrategy dbtype@MSSQL { mssql2012=ok } = 
+getMigrationStrategy dbtype@MSSQL { mssql2012=ok } =
      MigrationStrategy
                           { dbmsLimitOffset=limitOffset ok
                            ,dbmsMigrate=migrate'
@@ -60,7 +61,7 @@ migrate' allDefs getter val = do
     let (newcols, udefs, fdefs) = mkColumns allDefs val
     liftIO $ putStrLn $ "\n\nold="++show old
     liftIO $ putStrLn $ "\n\nfdefs="++show fdefs
-    
+
     let udspair = map udToPair udefs
     case (idClmn, old, partitionEithers old) of
       -- Nothing found, create everything
@@ -84,18 +85,18 @@ migrate' allDefs getter val = do
                         map (findTypeOfColumn allDefs name) ucols ]
         let foreigns = tracex ("in migrate' newcols=" ++ show newcols) $ do
               Column { cName=cname, cReference=Just (refTblName, a) } <- newcols
-              tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $ 
+              tracex ("\n\n111foreigns cname="++show cname++" name="++show name++" refTblName="++show refTblName++" a="++show a) $
                return $ AlterColumn name (refTblName, addReference allDefs (refName name cname) refTblName cname)
-                 
-        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef)) 
+
+        let foreignsAlt = map (\fdef -> let (childfields, parentfields) = unzip (map (\((_,b),(_,d)) -> (b,d)) (foreignFields fdef))
                                         in AlterColumn name (foreignRefTableDBName fdef, AddReference (foreignRefTableDBName fdef) (foreignConstraintNameDBName fdef) childfields parentfields)) fdefs
-        
+
         return $ Right $ map showAlterDb $ addTable : uniques ++ foreigns ++ foreignsAlt
       -- No errors and something found, migrate
       (_, _, ([], old')) -> do
         let excludeForeignKeys (xs,ys) = (map (\c -> case cReference c of
                                                     Just (_,fk) -> case find (\f -> fk == foreignConstraintNameDBName f) fdefs of
-                                                                     Just _ -> tracex ("\n\n\nremoving cos a composite fk="++show fk) $ 
+                                                                     Just _ -> tracex ("\n\n\nremoving cos a composite fk="++show fk) $
                                                                                 c { cReference = Nothing }
                                                                      Nothing -> c
                                                     Nothing -> c) xs,ys)
@@ -121,8 +122,8 @@ findTypeOfColumn allDefs name col =
 
 -- | Helper for 'AddRefence' that finds out the 'entityId'.
 addReference :: [EntityDef] -> DBName -> DBName -> DBName -> AlterColumn
-addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $ 
-                                  AddReference reftable fkeyname [cname] [id_] 
+addReference allDefs fkeyname reftable cname = tracex ("\n\naddreference cname="++show cname++" fkeyname="++show fkeyname++" reftable="++show reftable++" id_="++show id_) $
+                                  AddReference reftable fkeyname [cname] [id_]
     where
       id_ = maybe (error $ "Could not find ID of entity " ++ show reftable
                          ++ " (allDefs = " ++ show allDefs ++ ")")
@@ -164,7 +165,7 @@ getColumns :: (Text -> IO Statement)
                  )
 getColumns getter def = do
     -- Find out ID column.
-    stmtIdClmn <- getter $ mconcat $ 
+    stmtIdClmn <- getter $ mconcat $
       ["SELECT COLUMN_NAME, "
       ,"IS_NULLABLE, "
       ,"DATA_TYPE, "
@@ -189,14 +190,14 @@ getColumns getter def = do
                     ," AND COLUMN_NAME  <> ?"
                     ," LEFT OUTER JOIN sysconstraints con "
                     ," ON con.constid=col.default_object_id "
-                    ]     
-    --liftIO $ putStrLn $ "sql=" ++ show sql                
-    stmtClmns <- getter sql                     
+                    ]
+    --liftIO $ putStrLn $ "sql=" ++ show sql
+    stmtClmns <- getter sql
     inter2 <- with (stmtQuery stmtClmns vals) (`connect` CL.consume)
     cs <- runResourceT $ CL.sourceList inter2 `connect` helperClmns -- avoid nested queries
 
     -- Find out the constraints.
-    stmtCntrs <- getter $ mconcat $ 
+    stmtCntrs <- getter $ mconcat $
       ["SELECT CONSTRAINT_NAME, "
       ,"COLUMN_NAME "
       ,"FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE p "
@@ -273,12 +274,12 @@ getColumn getter tname [ PersistByteString cname
          ["SELECT KCU2.TABLE_NAME AS REFERENCED_TABLE_NAME, "
         ,"KCU1.CONSTRAINT_NAME AS CONSTRAINT_NAME, 1 "
         ,"FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS RC "
-        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1 " 
-        ,"ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG " 
-        ,"AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA " 
-        ,"AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME " 
-        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU2 " 
-        ,"ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG " 
+        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU1 "
+        ,"ON KCU1.CONSTRAINT_CATALOG = RC.CONSTRAINT_CATALOG "
+        ,"AND KCU1.CONSTRAINT_SCHEMA = RC.CONSTRAINT_SCHEMA "
+        ,"AND KCU1.CONSTRAINT_NAME = RC.CONSTRAINT_NAME "
+        ,"INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU2 "
+        ,"ON KCU2.CONSTRAINT_CATALOG = RC.UNIQUE_CONSTRAINT_CATALOG "
         ,"AND KCU2.CONSTRAINT_SCHEMA = RC.UNIQUE_CONSTRAINT_SCHEMA "
         ,"AND KCU2.CONSTRAINT_NAME = RC.UNIQUE_CONSTRAINT_NAME "
         ,"AND KCU2.ORDINAL_POSITION = KCU1.ORDINAL_POSITION "
@@ -292,7 +293,7 @@ getColumn getter tname [ PersistByteString cname
       ref <- case cntrs of
                [] -> return Nothing
                [[PersistByteString tab, PersistByteString ref, PersistInt64 pos]] ->
-                   tracex ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $ 
+                   tracex ("\n\n\nGBREF "++show (tab,ref,pos)++"\n\n") $
                     return $ Just (DBName $ T.decodeUtf8 tab, DBName $ T.decodeUtf8 ref)
                a1 -> fail $ "MSSQL.getColumn/getRef: never here error[" ++ show a1 ++ "]"
 
@@ -331,6 +332,8 @@ parseType "numeric"    = return SqlReal
 -- Text
 parseType "varchar"    = return SqlString
 parseType "varstring"  = return SqlString
+parseType "nvarchar"    = return SqlString
+parseType "nvarstring"  = return SqlString
 parseType "string"     = return SqlString
 parseType "text"       = return SqlString
 parseType "tinytext"   = return SqlString
@@ -399,17 +402,17 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
       case filter ((name ==) . cName) cols of
         [] -> case ref of
                Nothing -> ([(name, Add' col)], [])
-               Just (tname, b) -> let cnstr = tracex ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $ 
+               Just (tname, b) -> let cnstr = tracex ("\n\ncols="++show cols++"\n\n2222findalters new foreignkey col["++showColumn col++"] name["++show name++"] tname["++show tname++"] b["++show b ++ "]") $
                                               [addReference allDefs (refName tblName name) tname name]
                                   in (map ((,) name) (Add' col : cnstr), cols)
         Column _ isNull' type_' def' defConstraintName' _maxLen' ref':_ ->
             let -- Foreign key
                 refDrop = case (ref == ref', ref') of
-                            (False, Just (_, cname)) -> tracex ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $ 
+                            (False, Just (_, cname)) -> tracex ("\n\n44444findalters dropping foreignkey cname[" ++ show cname ++ "] ref[" ++ show ref ++"]") $
                                                         [(name, DropReference cname)]
                             _ -> []
                 refAdd  = case (ref == ref', ref) of
-                            (False, Just (tname, cname)) -> tracex ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $ 
+                            (False, Just (tname, cname)) -> tracex ("\n\n33333 findalters foreignkey has changed cname["++show cname++"] name["++show name++"] tname["++show tname++"] ref["++show ref++"] ref'["++show ref' ++ "]") $
                                                              [(tname, addReference allDefs (refName tblName name) tname name)]
                             _ -> []
                 -- Type and nullability
@@ -417,14 +420,14 @@ findAlters tblName allDefs col@(Column name isNull type_ def defConstraintName _
                         | otherwise = [(name, Change col)]
                 -- Default value
                 modDef | def == def' = []
-                       | otherwise   = tracex ("\n\nfindAlters modDef col=" ++ show col ++ " name=" ++ show name ++ " def=" ++ show def ++ " def'=" ++ show def' ++ " defConstraintName=" ++ show defConstraintName++" defConstraintName'=" ++ show defConstraintName' ++ "\n\n") $ 
+                       | otherwise   = tracex ("\n\nfindAlters modDef col=" ++ show col ++ " name=" ++ show name ++ " def=" ++ show def ++ " def'=" ++ show def' ++ " defConstraintName=" ++ show defConstraintName++" defConstraintName'=" ++ show defConstraintName' ++ "\n\n") $
                                         case def of
                                          Nothing -> [(name, NoDefault $ maybe (error $ "expected a constraint name col="++show name) id defConstraintName')]
                                          Just s -> if cmpdef def def' then [] else [(name, Default $ T.unpack s)]
             in ( refDrop ++ modType ++ modDef ++ refAdd
                , filter ((name /=) . cName) cols )
 
-cmpdef::Maybe Text -> Maybe Text -> Bool
+cmpdef :: Maybe Text -> Maybe Text -> Bool
 cmpdef Nothing Nothing = True
 cmpdef (Just def) (Just def') = "(" <> def <> ")" == def'
 cmpdef _ _ = False
@@ -590,7 +593,7 @@ escapeDBName (DBName s) = '[' : go (T.unpack s)
 insertSql' :: EntityDef -> [PersistValue] -> InsertSqlResult
 insertSql' ent vals =
   case entityPrimary ent of
-    Just _pdef -> 
+    Just _pdef ->
       ISRManyKeys sql vals
         where sql = pack $ concat
                 [ "INSERT INTO "
@@ -601,7 +604,7 @@ insertSql' ent vals =
                 , intercalate "," (map (const "?") $ entityFields ent)
                 , ")"
                 ]
-    Nothing -> 
+    Nothing ->
 -- should use scope_identity() but doesnt work :gives null
       ISRInsertGet doInsert "SELECT @@identity"
       where
@@ -623,14 +626,14 @@ insertSql' ent vals =
   --      doValue (FieldDef { fieldSqlType = SqlBlob }, PersistNull) = tracex "\n\nin blob with null\n\n" "isnull(?,convert(varbinary(max),''))"
         doValue _ _ = "?"
 
-        
-limitOffset::Bool -> (Int,Int) -> Bool -> Text -> Text 
-limitOffset mssql2012' (limit,offset) hasOrder sql 
+
+limitOffset :: Bool -> (Int,Int) -> Bool -> Text -> Text
+limitOffset mssql2012' (limit,offset) hasOrder sql
    | limit==0 && offset==0 = sql
    | mssql2012' && hasOrder && limit==0 = sql <> " offset " <> T.pack (show offset) <> " rows"
    | mssql2012' && hasOrder = sql <> " offset " <> T.pack (show offset) <> " rows fetch next " <> T.pack (show limit) <> " rows only"
    | not mssql2012' && offset==0 = case "select " `T.isPrefixOf` T.toLower (T.take 7 sql) of
-                                    True -> let (a,b) = T.splitAt 7 sql 
+                                    True -> let (a,b) = T.splitAt 7 sql
                                                 ret=a <> T.pack "top " <> T.pack (show limit) <> " " <> b
                                             in ret -- tracex ("ret="++show ret) ret
                                     False -> if T.null sql then error "MSSQL: not 2012 so trying to add 'top n' but the sql is empty"
@@ -638,7 +641,7 @@ limitOffset mssql2012' (limit,offset) hasOrder sql
    | mssql2012' = error $ "MS SQL Server 2012 requires an order by statement for limit and offset sql=" ++ T.unpack sql
    | otherwise = error $ "MSSQL does not support limit and offset until MS SQL Server 2012 sql=" ++ T.unpack sql ++ " mssql2012=" ++ show mssql2012' ++ " hasOrder=" ++ show hasOrder
 {-
-limitOffset True (limit,offset) False sql = error "MS SQL Server 2012 requires an order by statement for limit and offset" 
+limitOffset True (limit,offset) False sql = error "MS SQL Server 2012 requires an order by statement for limit and offset"
 limitOffset False (limit,offset) _ sql = error "MSSQL does not support limit and offset until MS SQL Server 2012"
 limitOffset True (limit,offset) True sql = undefined
 -}
