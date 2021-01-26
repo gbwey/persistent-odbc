@@ -78,7 +78,6 @@ Executable TestODBC
                     , HDBC-odbc     >= 2.6.0.0
                     , monad-logger
                     , resourcet
-                    , monad-control
                     , persistent-template >= 2.6.0 && < 2.8.3
                     , persistent    >= 2.6.0 && < 2.11
                     , bytestring
