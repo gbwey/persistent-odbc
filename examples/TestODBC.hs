@@ -2,6 +2,9 @@
 -- stack --stack-yaml=stack865.yaml exec -- testodbc s
 -- stack build --test --flag persistent-odbc:tester --stack-yaml=stack8103.yaml
 -- stack --stack-yaml=stack8103.yaml exec -- testodbc s
+-- cabal configure -f tester
+-- cabal build
+-- cabal exec -- TestODBC s
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
