@@ -58,8 +58,13 @@ migrate' allDefs getter val = do
     let name = entityDB val
     (idClmn, old) <- getColumns getter val
     let (newcols, udefs, fdefs) = mkColumns allDefs val
-    liftIO $ putStrLn $ "\n\nold="++show old
-    liftIO $ putStrLn $ "\n\nfdefs="++show fdefs
+    {-
+    liftIO $ do
+       putStrLn $ "\nold=" ++ show (length old)
+       mapM_ print old
+       putStrLn $ "\nfdefs=" ++ show (length fdefs)
+       mapM_ print fdefs
+    -}
 
     let udspair = map udToPair udefs
     case (idClmn, old, partitionEithers old) of
@@ -226,7 +231,14 @@ getColumns getter def = do
                           ,"ORDER BY constraint_name, column_name"]
 
     us <- with (stmtQuery stmtCntrs (vals++vals)) (`connect` helperCntrs)
-    liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
+    {-
+    liftIO $ do
+      putStrLn $ "\ngetColumns cs=" ++ show (length cs)
+      mapM_ print cs
+      putStrLn $ "\nus=" ++ show (length us)
+      mapM_ print us
+    -}
+
     -- Return both
     return (ids, cs ++ us)
   where

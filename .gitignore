@@ -21,5 +21,6 @@ tags
 *.sav
 tags
 *~
-
+dist-newstyle/
+stack*.yaml.lock
 .stack-work/

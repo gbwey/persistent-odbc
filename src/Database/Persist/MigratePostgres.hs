@@ -150,7 +150,13 @@ getColumns getter def = do
     stmt' <- getter $ pack sqlc
 
     us <- with (stmtQuery stmt' vals) (`connect` helperU)
-    liftIO $ putStrLn $ "\n\ngetColumns cs="++show cs++"\n\nus="++show us
+    {-
+    liftIO $ do
+      putStrLn $ "\ngetColumns cs=" ++ show (length cs)
+      mapM_ print cs
+      putStrLn $ "\nus=" ++ show (length us)
+      mapM_ print us
+    -}
     return $ cs ++ us
   where
     getAll front = do

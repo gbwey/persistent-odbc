@@ -1,0 +1,12 @@
+resolver: lts-17.0
+
+packages:
+- .
+
+extra-deps: 
+- HDBC-odbc-2.6.0.0
+- persistent-2.10.5.2
+# - esqueleto-3.1.0
+- persistent-template-2.8.2.3
+# - unix-time-0.4.6
+

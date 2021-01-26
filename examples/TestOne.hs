@@ -11,6 +11,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 module TestOne where
 
 import qualified Database.Persist as P
@@ -64,8 +67,8 @@ main = do
            "d" -> (DB2,"dsn=db2_test")
            "p" -> (Postgres,"dsn=pg_test")
            "m" -> (MySQL,"dsn=mysql_test")
-           "s" -> (MSSQL True,"dsn=mssql_test; Trusted_Connection=True") -- mssql 2012 [full limit and offset support]
-           "so" -> (MSSQL False,"dsn=mssql_test; Trusted_Connection=True") -- mssql pre 2012 [limit support only]
+           "s" -> (MSSQL True,"dsn=mssql_test; Trusted_Connection=Yes") -- mssql 2012 [full limit and offset support]
+           "so" -> (MSSQL False,"dsn=mssql_test; Trusted_Connection=Yes") -- mssql pre 2012 [limit support only]
            "o" -> (Oracle False,"dsn=oracle_test") -- pre oracle 12c [no support for limit and offset]
            "on" -> (Oracle True,"dsn=oracle_test") -- >= oracle 12c [full limit and offset support]
            "q" -> (Sqlite False,"dsn=sqlite_test")

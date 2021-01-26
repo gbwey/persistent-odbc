@@ -1,3 +1,7 @@
+-- stack build --test --flag persistent-odbc:tester --stack-yaml=stack865.yaml
+-- stack --stack-yaml=stack865.yaml exec -- testodbc s
+-- stack build --test --flag persistent-odbc:tester --stack-yaml=stack8103.yaml
+-- stack --stack-yaml=stack8103.yaml exec -- testodbc s
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -11,6 +15,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Main where
 import Database.Persist
 import Database.Persist.ODBC
@@ -229,7 +235,9 @@ testbase dbtype = do
     a1 <- insert $ Foo "test"
     liftIO $ putStrLn $ "a1=" ++ show a1
     a2 <- selectList ([] :: [Filter Foo]) []
-    liftIO $ putStrLn $ "a2=" ++ show a2
+    liftIO $ putStrLn $ "a2="
+    liftIO $ mapM_ print a2
+
     johnId <- insert $ Personz "John Doe" $ Just 35
     liftIO $ putStrLn $ "johnId[" ++ show johnId ++ "]"
     janeId <- insert $ Personz "Jane Doe" Nothing
@@ -237,14 +245,17 @@ testbase dbtype = do
 
     a3 <- selectList ([] :: [Filter Personz]) []
     unless (length a3 == 2) $ error $ "wrong number of Personz rows " ++ show a3
-    liftIO $ putStrLn $ "a3=" ++ show a3
+    liftIO $ putStrLn $ "a3="
+    liftIO $ mapM_ print a3
+
 
     void $ insert $ BlogPost "My fr1st p0st" johnId
     liftIO $ putStrLn $ "after insert johnId"
     void $ insert $ BlogPost "One more for good measure" johnId
     liftIO $ putStrLn $ "after insert johnId 2"
     a4 <- selectList ([] :: [Filter BlogPost]) []
-    liftIO $ putStrLn $ "a4=" ++ show a4
+    liftIO $ putStrLn $ "a4="
+    liftIO $ mapM_ print a4
     unless (length a4 == 2) $ error $ "wrong number of BlogPost rows " ++ show a4
 
     --oneJohnPost <- selectList [BlogPostAuthorId ==. johnId] [LimitTo 1]
@@ -302,12 +313,12 @@ test0 = do
     liftIO $ print p2
 
     p3 <- selectList [PersonxName ==. "Michael"] []
-    liftIO $ print p3
+    liftIO $ mapM_ print p3
 
     _ <- insert $ Personx "Michael2" 27 Nothing
     deleteWhere [PersonxName ==. "Michael2"]
     p4 <- selectList [PersonxAge <. 28] []
-    liftIO $ print p4
+    liftIO $ mapM_ print p4
 
     update pid [PersonxAge =. 28]
     p5 <- get pid
@@ -319,15 +330,15 @@ test0 = do
 
     _ <- insert $ Personx "Eliezer" 2 $ Just "blue"
     p7 <- selectList [] [Asc PersonxAge]
-    liftIO $ print p7
+    liftIO $ mapM_ print p7
 
     _ <- insert $ Personx "Abe" 30 $ Just "black"
     p8 <- selectList [PersonxAge <. 30] [Desc PersonxName]
-    liftIO $ print p8
+    liftIO $ mapM_ print p8
 
     _ <- insert $ Personx "Abe1" 31 $ Just "brown"
     p9 <- selectList [PersonxName ==. "Abe1"] []
-    liftIO $ print p9
+    liftIO $ mapM_ print p9
 
     a6 <- selectList ([] :: [Filter Personx]) []
     unless (length a6 == 4) $ error $ "wrong number of Personx rows " ++ show a6
@@ -336,13 +347,13 @@ test0 = do
     liftIO $ print p10
 
     p11 <- selectList [PersonxColor ==. Just "blue"] []
-    liftIO $ print p11
+    liftIO $ mapM_ print p11
 
     p12 <- selectList [PersonxColor ==. Nothing] []
-    liftIO $ print p12
+    liftIO $ mapM_ print p12
 
     p13 <- selectList [PersonxColor !=. Nothing] []
-    liftIO $ print p13
+    liftIO $ mapM_ print p13
 
     delete pid
     plast <- get pid
@@ -362,7 +373,9 @@ test1 dbtype = do
 
     a1 <- selectList ([] :: [Filter Persony]) []
     unless (length a1 == 4) $ error $ "wrong number of Personz rows " ++ show a1
-    liftIO $ putStrLn $ "persony " ++ show a1
+    liftIO $ putStrLn $ "persony "
+    liftIO $ mapM_ print a1
+
     let sql = case dbtype of
                 MSSQL {} -> "SELECT [name] FROM [persony] WHERE [name] LIKE '%Snoyman%'"
                 MySQL {} -> "SELECT `name` FROM `persony` WHERE `name` LIKE '%Snoyman%'"
@@ -390,7 +403,7 @@ test3 = do
     a4 <- insert $ Test1 False Nothing 100.3 Nothing
     liftIO $ putStrLn $ "a4=" ++ show a4
     ret <- selectList ([] :: [Filter Test1]) []
-    liftIO $ putStrLn $ "ret=" ++ show ret
+    liftIO $ mapM_ print ret
 
     a5 <- selectList ([] :: [Filter Test1]) []
     unless (length a5 == 4) $ error $ "wrong number of Test1 rows " ++ show a5
@@ -433,13 +446,17 @@ test4 = do
     liftIO $ putStrLn $ "x31=" ++ show x31
 
     a4 <- selectList ([] :: [Filter Asm]) []
-    liftIO $ putStrLn $ "a4=" ++ show a4
+    liftIO $ putStrLn "a4="
+    liftIO $ mapM_ print a4
+
     unless (length a4 == 3) $ error $ "wrong number of Asm rows " ++ show a4
     a5 <- selectList ([] :: [Filter Xsd]) []
-    liftIO $ putStrLn $ "a5=" ++ show a5
+    liftIO $ putStrLn "a5="
+    liftIO $ mapM_ print a5
     unless (length a5 == 3) $ error $ "wrong number of Xsd rows " ++ show a5
     a6 <- selectList ([] :: [Filter Line]) []
-    liftIO $ putStrLn $ "a6=" ++ show a6
+    liftIO $ putStrLn "a6="
+    liftIO $ mapM_ print a6
     unless (length a6 == 9) $ error $ "wrong number of Line rows " ++ show a6
 
     [Value mpos] <- select $
@@ -489,7 +506,8 @@ test6  = do
     liftIO $ putStrLn $ "r1=" ++ show r1
     liftIO $ putStrLn $ "r2=" ++ show r2
     zs <- selectList [] [Desc TestrationalRat]
-    liftIO $ putStrLn $ "zs=" ++ show zs
+    liftIO $ putStrLn "zs="
+    liftIO $ mapM_ print zs
     h1 <- insert $ Testhtml $ preEscapedToMarkup ("<p>hello</p>"::String)
     liftIO $ putStrLn $ "h1=" ++ show h1
 
@@ -503,11 +521,17 @@ test7 :: SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test7 = do
     liftIO $ putStrLn "\n*** in test7\n"
     a1 <- selectList [] [Desc LinePos, LimitTo 2, OffsetBy 3]
-    liftIO $ putStrLn $ show (length a1) ++ " rows: limit=2,offset=3 a1=" ++ show a1
+    liftIO $ putStrLn $ show (length a1) ++ " rows: limit=2,offset=3 a1="
+    liftIO $ mapM_ print a1
+
     a2 <- selectList [] [Desc LinePos, LimitTo 2]
-    liftIO $ putStrLn $ show (length a2) ++ " rows: limit=2 a2=" ++ show a2
+    liftIO $ putStrLn $ show (length a2) ++ " rows: limit=2 a2="
+    liftIO $ mapM_ print a2
+
     a3 <- selectList [] [Desc LinePos, OffsetBy 3]
-    liftIO $ putStrLn $ show (length a3) ++ " rows: offset=3 a3=" ++ show a3
+    liftIO $ putStrLn $ show (length a3) ++ " rows: offset=3 a3="
+    liftIO $ mapM_ print a3
+
 
 test8 :: SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test8 = do
@@ -525,9 +549,13 @@ test9 :: SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test9 = do
     liftIO $ putStrLn "\n*** in test9\n"
     a1 <- selectList [] [Desc LinePos, LimitTo 2]
-    liftIO $ putStrLn $ show (length a1) ++ " rows: limit=2,offset=0 a1=" ++ show a1
+    liftIO $ putStrLn $ show (length a1) ++ " rows: limit=2,offset=0 a1="
+    liftIO $ mapM_ print a1
+
     a2 <- selectList [] [Desc LinePos, LimitTo 4]
-    liftIO $ putStrLn $ show (length a2) ++ " rows: limit=4,offset=0 a2=" ++ show a2
+    liftIO $ putStrLn $ show (length a2) ++ " rows: limit=4,offset=0 a2="
+    liftIO $ mapM_ print a2
+
 
 test10 :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test10 dbtype = do
@@ -544,13 +572,14 @@ test10 dbtype = do
         -}
       _ -> void $ insert $ Testblob3 "" "hello3" "world3"
     ys <- selectList ([] :: [Filter Testblob3]) []
-    liftIO $ putStrLn $ "ys=" ++ show ys
+    liftIO $ putStrLn "ys="
+    liftIO $ mapM_ print ys
 
     a3 <- selectList ([] :: [Filter Testblob3]) []
     case dbtype of
       Oracle {} -> unless (length a3 == 2) $ error $ show dbtype ++ " :wrong number of Testblob3 rows " ++ show a3
       _ -> unless (length a3 == 3) $ error $ "wrong number of Testblob3 rows " ++ show a3
-    liftIO $ print a3
+    liftIO $ mapM_ print a3
 
 test11 :: DBType -> SqlPersistT (NoLoggingT (ResourceT IO)) ()
 test11 dbtype = do
@@ -566,7 +595,8 @@ test11 dbtype = do
     liftIO $ putStrLn "after testblob inserts"
 
     xs <- selectList ([] :: [Filter Testblob]) [] -- mssql fails if there is a null in a blog column
-    liftIO $ putStrLn $ "testblob xs=" ++ show xs
+    liftIO $ putStrLn $ "testblob xs="
+    liftIO $ mapM_ print xs
 
     a1 <- selectList ([] :: [Filter Testblob]) []
     case dbtype of
@@ -586,7 +616,8 @@ test12 dbtype = do
       -- Oracle {} -> unless (length a3 == 2) $ error $ show dbtype ++ " :wrong number of Testlen rows " ++ show a3
       _ -> unless (length a3 == 2) $ error $ "wrong number of Testlen rows " ++ show a3
 
-    liftIO $ putStrLn $ "a3=" ++ show a3
+    liftIO $ putStrLn $ "a3="
+    liftIO $ mapM_ print a3
 
 limitoffset :: DBType -> Bool
 limitoffset dbtype = -- trace ("limitoffset dbtype=" ++ show dbtype) $
