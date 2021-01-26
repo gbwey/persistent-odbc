@@ -273,7 +273,7 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlInt32 i)         = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlInt64 i)         = Right $ P $ PersistInt64 i
     safeConvert (HSV.SqlInteger i)       = Right $ P $ PersistInt64 $ fromIntegral i
-    safeConvert (HSV.SqlChar c)          = Right $ P $ charChk c
+    safeConvert (HSV.SqlChar c)          = Right $ P $ PersistInt64 . fromIntegral $ fromEnum c
     safeConvert (HSV.SqlBool b)          = Right $ P $ PersistBool b
     safeConvert (HSV.SqlDouble d)        = Right $ P $ PersistDouble d
     safeConvert (HSV.SqlRational r)      = Right $ P $ PersistRational r
@@ -289,7 +289,3 @@ instance DC.Convertible HSV.SqlValue P where
     safeConvert (HSV.SqlTimeDiff i)      = Right $ P $ PersistInt64 $ fromIntegral i
     safeConvert (HSV.SqlNull)            = Right $ P PersistNull
 
-charChk :: Char -> PersistValue
-charChk '\0' = PersistBool False
-charChk '\1' = PersistBool True
-charChk c = PersistText $ T.singleton c
